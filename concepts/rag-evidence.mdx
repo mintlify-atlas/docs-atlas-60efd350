@@ -1,5 +1,5 @@
 ---
-title: "RAG Evidence: Prevention Corpus Retrieval"
+title: "RAG Evidence: Prevention Corpus Retrieval and Scoring"
 sidebarTitle: "RAG & Evidence"
 description: "After the risk matrix lookup, IAviso Seguro retrieves matching fragments from a versioned prevention corpus and attaches them as auditable evidence."
 ---
@@ -29,7 +29,7 @@ If the file is absent, unreadable, or fails `KnowledgeBase` validation, the retr
   <Step title="Weighted lexical scoring">
     Remaining documents are scored against the combined query (`text + location`) using a weighted token-overlap formula:
 
-    ```
+    ```text
     score = 1
           + 4 × (query_tokens ∩ keyword_tokens)
           + 2 × (query_tokens ∩ heading_tokens)
@@ -45,7 +45,7 @@ If the file is absent, unreadable, or fails `KnowledgeBase` validation, the retr
 
 ## Configuration
 
-```
+```text
 RAG_MAX_SOURCES        # Number of corpus fragments to retrieve; 1–5, default 2
 KNOWLEDGE_BASE_PATH    # Path to the corpus JSON; default data/knowledge/prevention_docs.v1.json
 ```

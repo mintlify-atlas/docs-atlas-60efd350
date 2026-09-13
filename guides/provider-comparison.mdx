@@ -1,7 +1,7 @@
 ---
-title: "Comparing Ollama and Gemini Triage Results"
+title: "Comparing Ollama and Gemini Triage Classifications"
 sidebarTitle: "Provider Comparison"
-description: "Submit one hazard notice to both Ollama and Gemini concurrently, compare classifications, latency, tokens, and cost, then record a human reference decision."
+description: "Submit one hazard notice to both Ollama and Gemini concurrently, compare classifications, latency, and cost, then record a human reference decision."
 ---
 
 The comparison endpoint gives you a side-by-side view of how the local Ollama model and the external Gemini model classify the exact same hazard notice. Rather than triaging a notice with one provider and then re-running it separately with the other, a single `POST /api/v1/comparisons` call runs both providers **concurrently** and returns a stable-ordered response — local first, then external. The result is a single comparison record; it does not create two independent operational notices.
@@ -147,19 +147,19 @@ The response is a `ComparisonReviewRecord` that echoes the submitted fields and 
 
 <CardGroup cols={2}>
 
-<Card title="One record, two results" icon="files">
+<Card title="One record, two results" icon="files" href="/api/comparisons">
   A comparison does **not** create two separate notices in the operational inbox. It creates a single comparison record with two provider results. The `POST /api/v1/triage` endpoint is the one that creates notices.
 </Card>
 
-<Card title="Concurrent execution" icon="bolt">
+<Card title="Concurrent execution" icon="bolt" href="/concepts/providers">
   Both providers start simultaneously using a `ThreadPoolExecutor`. Total response time equals the **slower** of the two providers, not their combined sum. Ollama does not block Gemini from starting, and vice versa.
 </Card>
 
-<Card title="Stable ordering" icon="list-ol">
+<Card title="Stable ordering" icon="list-ol" href="/api/comparisons">
   The `results` array is always ordered `local` then `external`, regardless of which provider returned first. The API and the React UI are both guaranteed to receive a consistent structure.
 </Card>
 
-<Card title="Partial failures" icon="triangle-exclamation">
+<Card title="Partial failures" icon="triangle-exclamation" href="/configuration/providers">
   If one provider fails, its `result` is `null` and `error_code` carries the reason. The comparison record is still written and the successful provider's result is preserved. A missing `EXTERNAL_API_KEY` causes a `503` before the comparison is attempted.
 </Card>
 

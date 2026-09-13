@@ -1,5 +1,5 @@
 ---
-title: "Configuring AI Providers in IAviso Seguro"
+title: "AI Provider Configuration for IAviso Seguro Triage"
 sidebarTitle: "Providers"
 description: "Configure the local Ollama provider and the external Gemini provider, including model selection, sampling parameters, and resilience settings."
 ---
@@ -137,10 +137,10 @@ Provider selection, model identity, sampling parameters, attempt count, repair c
 These two resilience mechanisms operate at different points in the triage lifecycle and are configured independently.
 
 <CardGroup cols={2}>
-  <Card title="Retries" icon="rotate-right">
+  <Card title="Retries" icon="rotate-right" href="/configuration/environment#llm-resilience">
     Handle failures that occur **before** the LLM produces a response — network timeouts, connection errors, HTTP 429, and other transient HTTP errors. Governed by `LLM_MAX_RETRIES`, `LLM_RETRY_BASE_SECONDS`, and `LLM_RETRY_MAX_SECONDS`. Apply to the external provider; transport errors on the local provider are also subject to `LLM_TIMEOUT_SECONDS`.
   </Card>
-  <Card title="Repairs" icon="wrench">
+  <Card title="Repairs" icon="wrench" href="/configuration/environment#application">
     Handle failures that occur **after** the LLM responds — specifically, when the response cannot be parsed into the required Pydantic schema. The system re-prompts the LLM with the validation error up to `LLM_REPAIR_ATTEMPTS` times (range `0`–`3`, default `1`). Each repair attempt is recorded in per-run telemetry. Repairs apply to both providers equally.
   </Card>
 </CardGroup>

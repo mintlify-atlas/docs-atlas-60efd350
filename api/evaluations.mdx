@@ -1,7 +1,7 @@
 ---
 title: "POST /api/v1/evaluations — Run the Synthetic Benchmark"
-sidebarTitle: "POST /evaluations"
-description: "POST /api/v1/evaluations runs 14 labelled synthetic cases through both providers. Returns per-provider accuracy, latency, and cost. Does not create notices."
+sidebarTitle: "Evaluations"
+description: "POST /api/v1/evaluations runs synthetic benchmark cases through Ollama and Gemini. Returns per-provider accuracy, latency, and cost. No notices created."
 ---
 
 The evaluations endpoint runs a fixed, version-controlled set of synthetic hazard cases through both providers and returns a structured accuracy and performance report. It is designed for reproducible benchmarking: every call uses the same dataset (`data/evaluation/avisos.v1.json`), so results across runs are directly comparable. Each case carries an expected `category`, `urgency`, and `department` label; the endpoint measures how well each provider matches those labels.
@@ -12,13 +12,13 @@ The evaluations endpoint runs a fixed, version-controlled set of synthetic hazar
 
 ## Endpoint
 
-```
+```text
 POST /api/v1/evaluations
 ```
 
 ## Request Body
 
-This endpoint accepts no request body.
+This endpoint accepts **no request body**. Send the request without a body or with an empty body.
 
 ## Benchmark Dataset
 
@@ -46,7 +46,7 @@ The synthetic dataset is loaded from `data/evaluation/avisos.v1.json`, versioned
       `"local"` (Ollama) or `"external"` (Gemini).
     </ResponseField>
     <ResponseField name="cases" type="integer">
-      Number of synthetic cases that were executed for this provider.
+      Number of synthetic cases that were executed for this provider (≥ 0).
     </ResponseField>
     <ResponseField name="category_accuracy" type="number | null">
       Proportion of cases where the predicted category matched the expected label (0–1). `null` if no cases were executed.
@@ -70,7 +70,7 @@ The synthetic dataset is loaded from `data/evaluation/avisos.v1.json`, versioned
       ISO 4217 currency code for `mean_api_cost` (e.g. `"USD"`). `null` if no cost data.
     </ResponseField>
     <ResponseField name="reviewed_notices" type="integer">
-      Number of evaluation observations that also have a human review decision attached.
+      Number of evaluation observations that also have a human review decision attached (≥ 0).
     </ResponseField>
     <ResponseField name="human_correction_rate" type="number | null">
       Proportion of reviewed cases where a human modified or rejected the AI output (0–1). `null` if `reviewed_notices` is 0.

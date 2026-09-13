@@ -1,5 +1,5 @@
 ---
-title: "AI Providers: Ollama and Gemini in IAviso Seguro"
+title: "AI Providers: Ollama and Gemini Configuration Guide"
 sidebarTitle: "Providers"
 description: "IAviso Seguro supports a local Ollama provider and an external Gemini provider. Each request specifies its provider explicitly — no silent fallbacks."
 ---
@@ -62,7 +62,7 @@ Any request body with a `provider` value outside this set is rejected by Pydanti
 
     The key is checked **before the first HTTP call**. If `EXTERNAL_API_KEY` is empty or missing, `GeminiTriageProvider.generate()` raises `ProviderConnectionError` immediately and the API returns `503` — no connection attempt is made.
 
-    Pricing data can be versioned via `EXTERNAL_PRICE_MODEL`, `EXTERNAL_PRICE_INPUT_PER_MILLION`, `EXTERNAL_PRICE_OUTPUT_PER_MILLION`, `EXTERNAL_PRICE_CURRENCY`, and related variables. Cost is only calculated when the configured model name exactly matches the model used.
+    Pricing data can be versioned via `EXTERNAL_PRICE_MODEL`, `EXTERNAL_INPUT_PRICE_PER_MILLION`, `EXTERNAL_OUTPUT_PRICE_PER_MILLION`, `EXTERNAL_PRICE_CURRENCY`, and related variables. Cost is only calculated when the configured model name exactly matches the model used.
   </Tab>
 </Tabs>
 
@@ -96,7 +96,7 @@ The Gemini provider implements per-attempt retries for transient failures. Retri
 
 **Retry configuration**
 
-```
+```text
 LLM_MAX_RETRIES          # 0–5 retries; 0 = no retries
 LLM_RETRY_BASE_SECONDS   # Starting delay (exponential: base * 2^attempt)
 LLM_RETRY_MAX_SECONDS    # Hard cap on any single retry delay
@@ -104,7 +104,7 @@ LLM_RETRY_MAX_SECONDS    # Hard cap on any single retry delay
 
 The delay for attempt `n` (0-indexed) is:
 
-```
+```text
 delay = min(retry_base_seconds * 2^n, retry_max_seconds)
 ```
 
@@ -114,7 +114,7 @@ When `Retry-After` is present on a 429 response, the larger of the exponential d
 
 After a successful HTTP response, if the LLM output fails `TriageResult` Pydantic validation, the service may request a **repair** — a follow-up call to the same provider with the validation errors attached. Repairs are counted in `ExecutionMetrics.repair_attempts`.
 
-```
+```text
 LLM_REPAIR_ATTEMPTS   # 0–3; controls max repairs per triage run
 ```
 

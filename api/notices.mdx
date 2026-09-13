@@ -1,7 +1,7 @@
 ---
 title: "Notice Endpoints — List, Audit, and Review Proposals"
 sidebarTitle: "Notices"
-description: "GET /api/v1/notices lists and filters triage proposals. GET audit-events returns the audit trail. POST reviews submits a human decision."
+description: "GET /api/v1/notices filters proposals by seven query parameters. GET audit-events returns the immutable trail. POST reviews records a human decision."
 ---
 
 The notices endpoints let you browse all triage proposals, inspect their full audit trail, and record human review decisions. Each notice represents a single hazard report; a notice can accumulate multiple triage runs over its lifetime (e.g. if it is re-triaged with a different provider). The review endpoint uses optimistic concurrency to prevent conflicting simultaneous decisions.
@@ -35,11 +35,11 @@ Returns a paginated list of notices filtered by any combination of status, urgen
 </ParamField>
 
 <ParamField query="page" type="integer" default="1">
-  Page number (1-indexed). Must be ≥ 1.
+  Page number (1-indexed). Must be ≥ 1. Defaults to `1`.
 </ParamField>
 
 <ParamField query="limit" type="integer" default="20">
-  Number of items per page. Between **1 and 100**.
+  Number of items per page. Between **1 and 100** inclusive. Defaults to `20`.
 </ParamField>
 
 ### Response — `NoticePage`
@@ -54,11 +54,11 @@ Returns a paginated list of notices filtered by any combination of status, urgen
 </ResponseField>
 
 <ResponseField name="page" type="integer">
-  Current page number.
+  Current page number (≥ 1).
 </ResponseField>
 
 <ResponseField name="limit" type="integer">
-  Items per page as requested.
+  Items per page as requested (1–100).
 </ResponseField>
 
 <ResponseField name="total" type="integer">
@@ -90,7 +90,7 @@ Returns the complete ordered audit trail for a single notice. Every state transi
 ### Response — Array of `AuditEventRecord`
 
 <ResponseField name="id" type="integer">
-  Monotonically increasing identifier for the event.
+  Monotonically increasing integer identifier for the event (≥ 1).
 </ResponseField>
 
 <ResponseField name="notice_id" type="string (UUID)">
@@ -151,25 +151,25 @@ Submits a human review decision for the latest triage proposal on a notice. The 
 
 <ParamField body="decision" type="string" required>
   The review outcome. One of:
-  - `"approved"` — the AI proposal is accepted as-is
-  - `"modified"` — the AI proposal is accepted with corrections (requires at least one correction field)
-  - `"rejected"` — the AI proposal is rejected
+  - `"approved"` — the AI proposal is accepted as-is; `category`, `urgency`, and `department` must **not** be provided
+  - `"modified"` — the AI proposal is accepted with corrections; at least one of `category`, `urgency`, or `department` **must** be provided
+  - `"rejected"` — the AI proposal is rejected; `category`, `urgency`, and `department` must **not** be provided
 </ParamField>
 
 <ParamField body="reviewer" type="string" required>
-  Name or identifier of the person submitting the review. Between **1 and 200 characters**.
+  Name or identifier of the person submitting the review. Between **1 and 200 characters** after whitespace stripping.
 </ParamField>
 
 <ParamField body="comment" type="string" required>
-  Free-text explanation of the decision. Between **1 and 2000 characters**.
+  Free-text explanation of the decision. Between **1 and 2000 characters** after whitespace stripping.
 </ParamField>
 
 <ParamField body="expected_version" type="integer" required>
-  The version number of the proposal you are reviewing, as returned by the triage or list endpoints. The server rejects the review with `409` if the proposal has been modified since you last fetched it. Starts at `0` for a freshly created proposal.
+  The version number of the proposal you are reviewing, as returned by the triage or list endpoints. The server rejects the review with `409` if the proposal has been modified since you last fetched it. Must be ≥ 0. Starts at `0` for a freshly created proposal.
 </ParamField>
 
 <ParamField body="category" type="string">
-  Corrected category. Only valid (and required to have at least one correction) when `decision` is `"modified"`. Must be a value from the [catalogs endpoint](/api/catalogs).
+  Corrected category. Only valid when `decision` is `"modified"`, and at least one correction field must be present. Must be a value from the [catalogs endpoint](/api/catalogs).
 </ParamField>
 
 <ParamField body="urgency" type="string">

@@ -1,18 +1,18 @@
 ---
 title: "GET /api/v1/risk-matrix — Fetch the Active Risk Matrix"
-sidebarTitle: "GET /risk-matrix"
+sidebarTitle: "Risk Matrix"
 description: "GET /api/v1/risk-matrix returns the validated risk matrix document with all rules, urgency recommendations, departments, and evidence references."
 ---
 
 The risk matrix is the didactic reference document that the AI uses during triage. When the triage engine receives a hazard notice, it consults this matrix via an internal tool call to look up the recommended urgency and responsible department for the detected category. The `/risk-matrix` endpoint exposes the validated, in-memory version of that document so you can inspect the exact rules the model is working from.
 
 <Note>
-  The risk matrix is didactic and **non-normative**. It is an academic reference aid and does not constitute legal or regulatory guidance. The disclaimer field in the response will always contain an explicit statement to this effect.
+  The risk matrix is didactic and **non-normative**. It is an academic reference aid and does not constitute legal or regulatory guidance. The `disclaimer` field in the response will always contain an explicit statement to this effect.
 </Note>
 
 ## Endpoint
 
-```
+```text
 GET /api/v1/risk-matrix
 ```
 
@@ -23,34 +23,34 @@ This endpoint accepts no query parameters, path parameters, or request body.
 ## Response — `RiskMatrixDocument`
 
 <ResponseField name="version" type="string">
-  Semantic version of the active risk matrix (e.g. `"1.0.0"`). Follows the `MAJOR.MINOR.PATCH` format.
+  Semantic version of the active risk matrix (e.g. `"1.0.0"`). Must match the pattern `MAJOR.MINOR.PATCH` where `MAJOR` is at least 1.
 </ResponseField>
 
 <ResponseField name="disclaimer" type="string">
-  Non-normative disclaimer required by the schema. Always contains the phrase "no es normativa".
+  Non-normative disclaimer required by the schema. Always contains the phrase "no es normativa". Up to 500 characters.
 </ResponseField>
 
 <ResponseField name="rules" type="array of RiskMatrixRule">
-  One rule per hazard category. The matrix always contains exactly nine rules — one for each value in the categories catalog.
+  Exactly **nine** rules — one per hazard category. Every category from the [catalogs endpoint](/api/catalogs) appears exactly once.
 
   <Expandable title="RiskMatrixRule fields">
     <ResponseField name="rule_id" type="string">
-      Unique identifier for the rule. Follows the pattern `RM-{CATEGORY}-{NNN}` (e.g. `RM-ELEC-001`).
+      Unique identifier for the rule. Follows the pattern `RM-{ABC}-{NNN}` where `{ABC}` is 3–4 uppercase letters and `{NNN}` is a zero-padded three-digit number (e.g. `RM-ELEC-001`).
     </ResponseField>
     <ResponseField name="category" type="string">
       The hazard category this rule applies to. One of the nine canonical category values.
     </ResponseField>
     <ResponseField name="conditions" type="array of string">
-      One or more observable conditions that indicate this category of hazard. Each condition is a short descriptive string (up to 500 characters). Conditions within a rule are unique.
+      One or more observable conditions that indicate this category of hazard. Each condition is a short descriptive string (1–500 characters). The array must contain at least one entry, and all conditions within a rule are unique.
     </ResponseField>
     <ResponseField name="recommended_urgency" type="string">
       The urgency level recommended for this category under typical conditions: `baja`, `media`, `alta`, or `critica`.
     </ResponseField>
     <ResponseField name="department" type="string">
-      The department recommended as first responder for this category.
+      The department recommended as first responder for this category: `prevencion`, `mantenimiento`, `seguridad`, or `limpieza`.
     </ResponseField>
     <ResponseField name="evidence" type="string">
-      A short reference (up to 500 characters) to the regulatory or technical source supporting this rule.
+      A short reference (1–500 characters) to the regulatory or technical source supporting this rule.
     </ResponseField>
   </Expandable>
 </ResponseField>

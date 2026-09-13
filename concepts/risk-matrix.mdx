@@ -1,5 +1,5 @@
 ---
-title: "Risk Matrix: Hazard Categories and Rules"
+title: "Risk Matrix: Nine Hazard Categories, Rules, and Urgency"
 sidebarTitle: "Risk Matrix"
 description: "The versioned risk matrix maps nine workplace hazard categories to urgency levels and departments. Learn how the matrix is structured and queried."
 ---
@@ -90,13 +90,13 @@ Logs record the tool name, validated arguments, matrix version, and the rule app
 
 The React SPA loads the canonical closed values from a dedicated endpoint rather than hard-coding them in the frontend:
 
-```
+```http
 GET /api/v1/catalogs
 ```
 
 This returns all valid `categories`, `urgencies`, and `departments`. The same matrix rules are exposed separately:
 
-```
+```http
 GET /api/v1/risk-matrix
 ```
 

@@ -15,11 +15,11 @@ Runs a single hazard text through both providers (Ollama as `local` and Gemini a
 ### Request Body
 
 <ParamField body="text" type="string" required>
-  The free-text hazard description to submit to both providers. Between **1 and 4000 characters** (whitespace stripped).
+  The free-text hazard description to submit to both providers. Between **1 and 4000 characters** after whitespace stripping.
 </ParamField>
 
 <ParamField body="location" type="string">
-  Optional location context. Between **1 and 200 characters** when provided.
+  Optional location context. Between **1 and 200 characters** after whitespace stripping when provided.
 </ParamField>
 
 ### Example Request Body
@@ -42,7 +42,7 @@ Runs a single hazard text through both providers (Ollama as `local` and Gemini a
 </ResponseField>
 
 <ResponseField name="results" type="array of ComparisonProviderResult">
-  Always exactly two entries: index 0 is `local` (Ollama), index 1 is `external` (Gemini). Each entry contains:
+  Always exactly **two** entries: index 0 is `local` (Ollama), index 1 is `external` (Gemini). The schema enforces that both providers appear exactly once.
 
   <Expandable title="ComparisonProviderResult fields">
     <ResponseField name="provider" type="string">
@@ -53,7 +53,7 @@ Runs a single hazard text through both providers (Ollama as `local` and Gemini a
       Contains `category`, `urgency`, `department`, `summary`, and `justification`.
     </ResponseField>
     <ResponseField name="error_code" type="string | null">
-      Machine-readable error code if the run failed (e.g. `"provider_unavailable"`, `"invalid_provider_output"`). `null` on success.
+      Machine-readable error code if the run failed (e.g. `"provider_unavailable"`, `"invalid_provider_output"`). `null` on success. When `result` is `null`, `error_code` is always set; when `result` is present, `error_code` is always `null`.
     </ResponseField>
     <ResponseField name="metrics" type="ExecutionMetrics">
       Full telemetry for this provider's run: latency, token counts, cost, attempt counts, and more. See the [triage endpoint](/api/triage) for the complete `ExecutionMetrics` field reference.
@@ -84,7 +84,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/comparisons \
 
 ## POST /api/v1/comparisons/\{comparison_id\}/review
 
-Saves a single human reference decision for a comparison. This records what a domain expert considers the correct classification for the submitted text, enabling accuracy evaluation against both providers' outputs. Each comparison can only be reviewed **once**.
+Saves a single human reference decision for a comparison. This records what a domain expert considers the correct classification for the submitted text, enabling accuracy evaluation against both providers' outputs. Each comparison can only be reviewed **once** — submitting a second review returns `409`.
 
 ### Path Parameters
 
@@ -93,6 +93,8 @@ Saves a single human reference decision for a comparison. This records what a do
 </ParamField>
 
 ### Request Body
+
+All five fields are required.
 
 <ParamField body="category" type="string" required>
   The human expert's chosen hazard category. Must be a value from the [catalogs endpoint](/api/catalogs).
@@ -107,11 +109,11 @@ Saves a single human reference decision for a comparison. This records what a do
 </ParamField>
 
 <ParamField body="reviewer" type="string" required>
-  Name or identifier of the person submitting the decision. Between **1 and 200 characters**.
+  Name or identifier of the person submitting the decision. Between **1 and 200 characters** after whitespace stripping.
 </ParamField>
 
 <ParamField body="comment" type="string" required>
-  Free-text justification for the classification. Between **1 and 2000 characters**.
+  Free-text justification for the classification. Between **1 and 2000 characters** after whitespace stripping.
 </ParamField>
 
 ### Response — `ComparisonReviewRecord`

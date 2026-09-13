@@ -1,6 +1,6 @@
 ---
 title: "POST /api/v1/triage — Submit a Hazard Notice for AI Triage"
-sidebarTitle: "POST /triage"
+sidebarTitle: "Triage"
 description: "POST /api/v1/triage — submit a free-text hazard notice and receive a structured AI proposal. Specify provider as local (Ollama) or external (Gemini)."
 ---
 
@@ -10,14 +10,14 @@ The created proposal is persisted immediately with a status of `pending_review`.
 
 ## Endpoint
 
-```
+```text
 POST /api/v1/triage
 ```
 
 ## Request Body
 
 <ParamField body="text" type="string" required>
-  Free-text description of the hazard. Must be between **1 and 4000 characters** (whitespace stripped). This is the notice that will be analysed by the AI model.
+  Free-text description of the hazard. Must be between **1 and 4000 characters** after whitespace stripping. This is the notice that will be analysed by the AI model.
 </ParamField>
 
 <ParamField body="provider" type="string" required>
@@ -27,7 +27,7 @@ POST /api/v1/triage
 </ParamField>
 
 <ParamField body="location" type="string">
-  Optional location context for the hazard (e.g. `"Planta baja"`, `"Almacén 3"`). Between **1 and 200 characters** when provided. Passed to the model as additional context but does not affect the classification contract.
+  Optional location context for the hazard (e.g. `"Planta baja"`, `"Almacén 3"`). Between **1 and 200 characters** after whitespace stripping when provided. Passed to the model as additional context but does not affect the classification contract.
 </ParamField>
 
 ### Example Request Body
@@ -57,7 +57,7 @@ On success the endpoint returns HTTP **200** with a `TriageProposalResponse` bod
 </ResponseField>
 
 <ResponseField name="version" type="integer">
-  Starts at `0` for a newly created proposal. Incremented on each review. Pass this value as `expected_version` when submitting a review to prevent conflicting concurrent updates.
+  Starts at `0` for a newly created proposal (minimum value is `0`). Incremented on each review. Pass this value as `expected_version` when submitting a review to prevent conflicting concurrent updates.
 </ResponseField>
 
 <ResponseField name="provider" type="string">
@@ -85,7 +85,7 @@ On success the endpoint returns HTTP **200** with a `TriageProposalResponse` bod
 </ResponseField>
 
 <ResponseField name="summary" type="string">
-  Exactly **10 words** summarising the hazard. This constraint is enforced by Pydantic validation — if the model returns a summary with a different word count the response is rejected and the endpoint returns a `502`.
+  Exactly **10 words** summarising the hazard. This constraint is enforced by Pydantic validation on the model output — if the provider returns a summary with a different word count the response is rejected and the endpoint returns a `502` with code `invalid_provider_output`.
 </ResponseField>
 
 <ResponseField name="justification" type="string">
@@ -101,17 +101,17 @@ On success the endpoint returns HTTP **200** with a `TriageProposalResponse` bod
     <ResponseField name="parameters" type="object">LLM parameters used (e.g. `temperature`, `top_p`).</ResponseField>
     <ResponseField name="started_at" type="string (datetime)">When the provider call was initiated.</ResponseField>
     <ResponseField name="completed_at" type="string (datetime)">When the response was received and validated.</ResponseField>
-    <ResponseField name="latency_ms" type="number">Wall-clock latency in milliseconds from start to completion.</ResponseField>
-    <ResponseField name="provider_attempts" type="integer">Number of HTTP calls made to the provider (includes retries).</ResponseField>
-    <ResponseField name="repair_attempts" type="integer">Number of repair attempts made after an invalid response.</ResponseField>
-    <ResponseField name="input_tokens" type="integer | null">Input token count (null if not reported by the provider).</ResponseField>
-    <ResponseField name="output_tokens" type="integer | null">Output token count (null if not reported by the provider).</ResponseField>
-    <ResponseField name="total_tokens" type="integer | null">Total token count (null if not reported by the provider).</ResponseField>
+    <ResponseField name="latency_ms" type="number">Wall-clock latency in milliseconds from start to completion (≥ 0).</ResponseField>
+    <ResponseField name="provider_attempts" type="integer">Number of HTTP calls made to the provider (includes retries, ≥ 0).</ResponseField>
+    <ResponseField name="repair_attempts" type="integer">Number of repair attempts made after an invalid response (≥ 0).</ResponseField>
+    <ResponseField name="input_tokens" type="integer | null">Input token count (`null` if not reported by the provider).</ResponseField>
+    <ResponseField name="output_tokens" type="integer | null">Output token count (`null` if not reported by the provider).</ResponseField>
+    <ResponseField name="total_tokens" type="integer | null">Total token count (`null` if not reported by the provider).</ResponseField>
     <ResponseField name="success" type="boolean">Whether the triage run produced a valid result.</ResponseField>
-    <ResponseField name="json_valid" type="boolean | null">Whether the model output was valid JSON before any repair.</ResponseField>
-    <ResponseField name="error_type" type="string | null">Class name of the error if the run failed, otherwise null.</ResponseField>
-    <ResponseField name="api_cost" type="number | null">Estimated monetary cost of the API call (null for local models).</ResponseField>
-    <ResponseField name="api_cost_currency" type="string | null">ISO 4217 currency code for `api_cost` (e.g. `"USD"`).</ResponseField>
+    <ResponseField name="json_valid" type="boolean | null">Whether the model output was valid JSON before any repair attempt.</ResponseField>
+    <ResponseField name="error_type" type="string | null">Class name of the error if the run failed, otherwise `null`.</ResponseField>
+    <ResponseField name="api_cost" type="number | null">Estimated monetary cost of the API call (`null` for local models).</ResponseField>
+    <ResponseField name="api_cost_currency" type="string | null">ISO 4217 currency code for `api_cost` (e.g. `"USD"`). `null` for local models.</ResponseField>
   </Expandable>
 </ResponseField>
 

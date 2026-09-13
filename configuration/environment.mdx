@@ -1,5 +1,5 @@
 ---
-title: "Environment Variables Reference for IAviso Seguro"
+title: "Complete Environment Variables Reference for IAviso Seguro"
 sidebarTitle: "Environment"
 description: "Complete reference for all IAviso Seguro environment variables — database path, knowledge base, LLM settings, health checks, and pricing."
 ---
@@ -22,6 +22,14 @@ The `.env` file is loaded by `pydantic-settings` at startup via `SettingsConfigD
 
 <ParamField body="APP_ENV" type="string" default="development">
   Runtime environment label. Used for informational purposes. Example value: `development`.
+</ParamField>
+
+<ParamField body="API_BASE_URL" type="url" default="http://127.0.0.1:8000">
+  Base URL at which the FastAPI backend is reachable. Used by the React frontend and any tooling that needs to build absolute URLs for the API. Change this when running behind a reverse proxy or when binding to a non-default port.
+</ParamField>
+
+<ParamField body="LLM_PROVIDER" type="string" default="local">
+  Default LLM provider used when no `provider` field is supplied in a request body. Accepted values: `local` (Ollama) or `external` (Gemini). Requests that explicitly specify a provider override this value on a per-request basis.
 </ParamField>
 
 <ParamField body="DATABASE_PATH" type="path" default="data/local/iaviso.db">

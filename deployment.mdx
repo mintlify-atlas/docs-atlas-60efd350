@@ -1,7 +1,7 @@
 ---
-title: "Deploy IAviso Seguro with Docker Compose"
+title: "Deploy IAviso Seguro: Docker Compose Production Setup"
 sidebarTitle: "Deployment"
-description: "Build and run IAviso Seguro as a single Docker container serving both the FastAPI backend and the prebuilt React SPA."
+description: "Build and run IAviso Seguro as a single Docker container that serves both the FastAPI backend and the compiled React SPA on port 8000."
 ---
 
 The Docker deployment bundles the entire application into a single container. During the image build, a Node 22 stage compiles the React SPA (`npm ci && npm run build`) and copies the resulting static assets into the Python runtime image. FastAPI then serves those files directly from the `frontend-react/dist/` directory alongside the REST API, so no separate web server or reverse proxy is needed. The container exposes only port `8000`; Ollama continues to run on the host machine and is reached from inside the container via `host.docker.internal`.
@@ -68,7 +68,7 @@ The Docker deployment bundles the entire application into a single container. Du
   <Step title="Open the application">
     Once the container starts and FastAPI reports ready, open your browser at:
 
-    ```
+    ```text
     http://127.0.0.1:8000
     ```
 

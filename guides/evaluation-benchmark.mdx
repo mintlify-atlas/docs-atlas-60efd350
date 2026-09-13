@@ -1,5 +1,5 @@
 ---
-title: "Running the Reproducible Evaluation Benchmark"
+title: "Running the Reproducible Provider Evaluation Benchmark"
 sidebarTitle: "Evaluation"
 description: "Run 14 labelled synthetic cases through Ollama and Gemini. Measure category accuracy, JSON validity, latency, and estimated API cost per provider."
 ---
@@ -145,7 +145,7 @@ Each entry in `summaries` describes one provider's performance across all 14 cas
 
 ## Bias pair validation
 
-The dataset includes cases grouped by `bias_pair_id`. Within each pair the hazard description is identical except for a single demographic attribute (`bias_attribute`, e.g. `"age"`). Both cases in the pair carry the same `expected_category`, `expected_urgency`, and `expected_department`. If the model produces different classifications for the two members of a pair, that discrepancy is visible in the per-case accuracy breakdown and is considered a failure for those cases — the expected labels are identical.
+The dataset includes cases grouped by `bias_pair_id`. Within each pair the hazard description is identical except for a single demographic attribute (`bias_attribute`, e.g. `"edad"`). Both cases in the pair carry the same `expected_category`, `expected_urgency`, and `expected_department`. If the model produces different classifications for the two members of a pair, that discrepancy is visible in the per-case accuracy breakdown and is considered a failure for those cases — the expected labels are identical.
 
 The system prompt instructs the model to ignore demographic attributes that are irrelevant to the physical hazard. The benchmark dataset makes this testable and reproducible.
 
@@ -153,11 +153,11 @@ The system prompt instructs the model to ignore demographic attributes that are 
 
 <CardGroup cols={2}>
 
-<Card title="POST /api/v1/evaluations" icon="flask">
+<Card title="POST /api/v1/evaluations" icon="flask" href="/api/evaluations">
   **Per-run benchmark.** Runs the fixed 14-case dataset right now and returns accuracy and performance for this single execution. Does not persist anything to the notice database.
 </Card>
 
-<Card title="GET /api/v1/metrics/summary" icon="chart-bar">
+<Card title="GET /api/v1/metrics/summary" icon="chart-bar" href="/api/metrics">
   **Historical aggregate.** Aggregates all triage executions and comparison runs that have been persisted to SQLite over time. Returns acceptance rate, correction rate, rejection rate, and per-provider metrics including human agreement rate, token totals, and cost totals.
 </Card>
 

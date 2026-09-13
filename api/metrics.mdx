@@ -1,6 +1,6 @@
 ---
 title: "GET /api/v1/metrics/summary — Historical Performance Summary"
-sidebarTitle: "GET /metrics/summary"
+sidebarTitle: "Metrics"
 description: "GET /api/v1/metrics/summary aggregates all triage runs and comparisons. Returns acceptance rates, latency, tokens, cost, and human agreement per provider."
 ---
 
@@ -8,7 +8,7 @@ The metrics summary endpoint aggregates the complete history of triage runs and 
 
 ## Endpoint
 
-```
+```text
 GET /api/v1/metrics/summary
 ```
 
@@ -21,31 +21,31 @@ This endpoint accepts no query parameters, path parameters, or request body.
 ### Top-Level Counts
 
 <ResponseField name="total_notices" type="integer">
-  Total number of unique hazard notices ever created (regardless of status).
+  Total number of unique hazard notices ever created (regardless of status). ≥ 0.
 </ResponseField>
 
 <ResponseField name="total_runs" type="integer">
-  Total number of triage executions across all notices and providers.
+  Total number of triage executions across all notices and providers. ≥ 0.
 </ResponseField>
 
 <ResponseField name="pending_review" type="integer">
-  Number of triage runs currently awaiting a human decision.
+  Number of triage runs currently awaiting a human decision. ≥ 0.
 </ResponseField>
 
 <ResponseField name="reviewed" type="integer">
-  Number of triage runs that have received a human decision (approved + modified + rejected).
+  Number of triage runs that have received a human decision (approved + modified + rejected). ≥ 0.
 </ResponseField>
 
 <ResponseField name="approved" type="integer">
-  Number of triage runs accepted without modification.
+  Number of triage runs accepted without modification. ≥ 0.
 </ResponseField>
 
 <ResponseField name="modified" type="integer">
-  Number of triage runs accepted with corrections to at least one field.
+  Number of triage runs accepted with corrections to at least one field. ≥ 0.
 </ResponseField>
 
 <ResponseField name="rejected" type="integer">
-  Number of triage runs that were rejected entirely.
+  Number of triage runs that were rejected entirely. ≥ 0.
 </ResponseField>
 
 ### Aggregate Rates
@@ -53,21 +53,21 @@ This endpoint accepts no query parameters, path parameters, or request body.
 All three rate fields are `null` when there are no reviewed runs. They are never coerced to `0`.
 
 <ResponseField name="acceptance_rate" type="number | null">
-  Proportion of reviewed runs that were approved without modification (`approved / reviewed`).
+  Proportion of reviewed runs that were approved without modification (`approved / reviewed`). Range 0–1.
 </ResponseField>
 
 <ResponseField name="correction_rate" type="number | null">
-  Proportion of reviewed runs that were approved with corrections (`modified / reviewed`).
+  Proportion of reviewed runs that were approved with corrections (`modified / reviewed`). Range 0–1.
 </ResponseField>
 
 <ResponseField name="rejection_rate" type="number | null">
-  Proportion of reviewed runs that were rejected (`rejected / reviewed`).
+  Proportion of reviewed runs that were rejected (`rejected / reviewed`). Range 0–1.
 </ResponseField>
 
 ### Per-Provider Breakdown
 
 <ResponseField name="providers" type="array of ProviderMetricsSummary">
-  Always contains exactly two entries — one for `local` and one for `external`.
+  Always contains exactly **two** entries — one for `local` and one for `external`. The schema enforces that both providers are present exactly once.
 
   <Expandable title="ProviderMetricsSummary fields">
     <ResponseField name="provider" type="string">
@@ -77,10 +77,10 @@ All three rate fields are `null` when there are no reviewed runs. They are never
       Distinct model identifiers observed for this provider across all runs (e.g. `["llama3.2:3b"]`).
     </ResponseField>
     <ResponseField name="runs" type="integer">
-      Total triage runs for this provider.
+      Total triage runs for this provider. ≥ 0.
     </ResponseField>
     <ResponseField name="reviewed_runs" type="integer">
-      Number of this provider's runs that have a human review decision.
+      Number of this provider's runs that have a human review decision. ≥ 0.
     </ResponseField>
     <ResponseField name="mean_latency_ms" type="number | null">
       Mean wall-clock latency in milliseconds. `null` if no runs.
@@ -101,16 +101,16 @@ All three rate fields are `null` when there are no reviewed runs. They are never
       Proportion of runs where the raw model output was valid JSON before any repair (0–1). `null` if `json_valid_observations` is 0.
     </ResponseField>
     <ResponseField name="json_valid_observations" type="integer">
-      Number of runs for which JSON validity was recorded.
+      Number of runs for which JSON validity was recorded. ≥ 0.
     </ResponseField>
     <ResponseField name="human_agreement_rate" type="number | null">
-      Proportion of reviewed runs that were **approved without modification** (`approved / reviewed_runs`). Corrections, rejections, and failures all count as disagreement. `null` if `reviewed_runs` is 0.
+      Proportion of reviewed runs that were **approved without modification** (`approved_without_modification / reviewed_runs`). Corrections, rejections, and failures all count as disagreement. `null` if `reviewed_runs` is 0.
     </ResponseField>
     <ResponseField name="mean_total_tokens" type="number | null">
       Mean total tokens (input + output) per run. `null` if `token_observations` is 0.
     </ResponseField>
     <ResponseField name="token_observations" type="integer">
-      Number of runs for which token counts were recorded.
+      Number of runs for which token counts were recorded. ≥ 0.
     </ResponseField>
     <ResponseField name="mean_api_cost" type="number | null">
       Mean estimated API cost per run. `null` for local models or if `cost_observations` is 0.
@@ -119,7 +119,7 @@ All three rate fields are `null` when there are no reviewed runs. They are never
       ISO 4217 currency code for `mean_api_cost` (e.g. `"USD"`). `null` if no cost data.
     </ResponseField>
     <ResponseField name="cost_observations" type="integer">
-      Number of runs for which API cost data was recorded.
+      Number of runs for which API cost data was recorded. ≥ 0.
     </ResponseField>
     <ResponseField name="temperatures" type="array of number">
       Distinct temperature values observed across all runs for this provider.
@@ -131,14 +131,14 @@ All three rate fields are `null` when there are no reviewed runs. They are never
 </ResponseField>
 
 <Note>
-  Fields with no observations are always `null`, never `0`. For example, if no token counts have been reported for the local provider, `mean_total_tokens` will be `null` and `token_observations` will be `0`. This distinction is intentional: a `null` means "no data", while a numeric `0` would mean "observed and equal to zero".
+  Fields with no observations are always `null`, never `0`. For example, if no token counts have been reported for the local provider, `mean_total_tokens` will be `null` and `token_observations` will be `0`. This distinction is intentional: a `null` means "no data", while a numeric `0` would mean "observed and equal to zero."
 </Note>
 
 ### Understanding `human_agreement_rate`
 
 `human_agreement_rate` answers the question: *"When a human reviewed this provider's output, how often did they accept it without any changes?"* It is calculated as:
 
-```
+```text
 human_agreement_rate = approved_without_modification / reviewed_runs
 ```
 

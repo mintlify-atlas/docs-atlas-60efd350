@@ -1,5 +1,5 @@
 ---
-title: "How the Triage Workflow Works in IAviso Seguro"
+title: "IAviso Seguro Triage Workflow: End-to-End Pipeline"
 sidebarTitle: "Triage Workflow"
 description: "Follow a notice from free-text submission through AI classification, risk matrix lookup, RAG evidence retrieval, and final human review."
 ---
@@ -10,7 +10,7 @@ Every hazard report submitted to IAviso Seguro travels through a fixed, auditabl
 
 The text pipeline follows this acyclic flow, as described in the README:
 
-```
+```text
 aviso → categoría inicial → matriz PRL → recuperación documental
       → LLM → contrato Pydantic → revisión humana
 ```

@@ -1,7 +1,7 @@
 ---
-title: "Persistence and Knowledge Base Configuration"
+title: "SQLite Persistence and Knowledge Base — IAviso Seguro"
 sidebarTitle: "Persistence"
-description: "Configure SQLite storage and the local prevention corpus. Covers database path, knowledge base path, and RAG source limits."
+description: "Configure SQLite storage and the local RAG prevention corpus. Covers database path, knowledge base path, OCC version control, and source retrieval limits."
 ---
 
 IAviso Seguro uses SQLite for all structured persistence and a local versioned JSON corpus for RAG-based evidence retrieval. Neither component requires an external service, a vector database, or a managed cloud store — everything runs from the file system, which keeps the stack self-contained and easy to reproduce in development, CI, and Docker environments.

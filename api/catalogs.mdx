@@ -1,6 +1,6 @@
 ---
 title: "GET /api/v1/catalogs — Fetch Closed-Domain Value Lists"
-sidebarTitle: "GET /catalogs"
+sidebarTitle: "Catalogs"
 description: "GET /api/v1/catalogs returns the canonical categories, urgency levels, and departments accepted by the triage and review endpoints."
 ---
 
@@ -8,7 +8,7 @@ The catalogs endpoint publishes the exact Pydantic-validated string values accep
 
 ## Endpoint
 
-```
+```text
 GET /api/v1/catalogs
 ```
 
@@ -19,15 +19,15 @@ This endpoint accepts no query parameters, path parameters, or request body.
 ## Response — `CatalogsResponse`
 
 <ResponseField name="categories" type="array of string">
-  All valid hazard categories. These are the only values accepted for the `category` field in triage requests and review corrections.
+  All nine valid hazard categories, in canonical order. These are the only values accepted for the `category` field in triage requests and review corrections.
 </ResponseField>
 
 <ResponseField name="urgencies" type="array of string">
-  All valid urgency levels, ordered from lowest to highest: `baja` → `media` → `alta` → `critica`.
+  All four valid urgency levels, ordered from lowest to highest: `baja` → `media` → `alta` → `critica`.
 </ResponseField>
 
 <ResponseField name="departments" type="array of string">
-  All valid responsible departments.
+  All four valid responsible departments: `prevencion`, `mantenimiento`, `seguridad`, `limpieza`.
 </ResponseField>
 
 ### Full Response Example

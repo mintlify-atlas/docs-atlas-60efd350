@@ -1,14 +1,14 @@
 ---
-title: "GET /health — API and Service Health Check"
-sidebarTitle: "GET /health"
-description: "GET /health — returns API status and availability of Ollama, Gemini, and SQLite. Each dependency is probed in parallel within a configurable timeout."
+title: "GET /health — API and Dependency Availability Check"
+sidebarTitle: "Health Check"
+description: "GET /health returns HTTP 200 with API status and availability of Ollama, Gemini, and SQLite probed concurrently within a configurable timeout."
 ---
 
 The `/health` endpoint gives you a snapshot of the API's own availability and the reachability of every service it depends on. It is designed for monitoring dashboards, load-balancer liveness probes, and manual diagnostics during local development.
 
 ## Endpoint
 
-```
+```text
 GET /health
 ```
 
@@ -38,7 +38,7 @@ The HTTP status code is always **200**, even when individual dependencies are un
 </ResponseField>
 
 <ResponseField name="services" type="array of ServiceHealth">
-  One entry per monitored dependency.
+  One entry per monitored dependency. The array always contains four entries: `api`, `ollama`, `gemini`, and `sqlite`.
 
   <Expandable title="ServiceHealth fields">
     <ResponseField name="id" type="string">
@@ -54,7 +54,7 @@ The HTTP status code is always **200**, even when individual dependencies are un
       - `not_configured` — the service requires configuration that is absent (e.g. no `EXTERNAL_API_KEY` for Gemini)
     </ResponseField>
     <ResponseField name="detail" type="string | null">
-      Optional extra context. For Ollama this will be the installed model name (e.g. `"llama3.2:3b"`); `null` otherwise.
+      Optional extra context. For Ollama this will be the installed model name (e.g. `"llama3.2:3b"`). `null` when no additional detail is available. When present, the value is between 1 and 100 characters.
     </ResponseField>
   </Expandable>
 </ResponseField>
@@ -72,6 +72,10 @@ The HTTP status code is always **200**, even when individual dependencies are un
   ]
 }
 ```
+
+<Note>
+  The HTTP status is always `200` regardless of what each service reports. A status of `unavailable` or `not_configured` for a dependency does **not** cause the health endpoint itself to return a non-2xx code.
+</Note>
 
 ## Example Request
 
