@@ -1,0 +1,233 @@
+---
+title: "Reviewing AI Triage Proposals as a Safety Technician"
+sidebarTitle: "Human Review"
+description: "Approve, modify, or reject an AI triage proposal using the notices inbox. Understand versioning, conflict detection, and the audit trail."
+---
+
+Every AI triage proposal created by IAviso Seguro lands in `pending_review` status and must be reviewed by a human safety technician before it becomes an accepted classification. No proposal is ever applied operationally without that human step — the AI output is always a candidate, never a final decision. This guide walks through the full review cycle: querying the inbox, examining a proposal, submitting your decision, and reading the audit trail.
+
+<Steps>
+
+### Query the inbox
+
+Fetch all proposals that are waiting for a decision. The `status` filter limits results to items that still need action.
+
+```bash
+GET /api/v1/notices?status=pending_review
+```
+
+Additional query parameters let you narrow the list further:
+
+| Parameter  | Type   | Description                                      |
+|------------|--------|--------------------------------------------------|
+| `search`   | string | Free-text search (max 200 characters)            |
+| `status`   | enum   | `pending_review`, `approved`, `modified`, `rejected` |
+| `urgency`  | enum   | Urgency level from the domain catalogue          |
+| `category` | enum   | Hazard category from the domain catalogue        |
+| `provider` | enum   | `local` (Ollama) or `external` (Gemini)          |
+| `page`     | int    | Page number, starting at 1                       |
+| `limit`    | int    | Results per page, 1–100 (default 20)             |
+
+The response is a `NoticePage` with `items`, `page`, `limit`, `total`, and `pages` fields. Server-side pagination means you only transfer the slice you need.
+
+### Examine the proposal
+
+Each item in the inbox contains a `TriageProposalResponse` with the following fields produced by the model:
+
+| Field           | Description                                              |
+|-----------------|----------------------------------------------------------|
+| `notice_id`     | UUID of the parent notice                                |
+| `triage_run_id` | UUID of this specific triage execution                   |
+| `status`        | Always `pending_review` for new proposals                |
+| `version`       | Starts at `0`; incremented on each review attempt        |
+| `category`      | Proposed hazard category                                 |
+| `urgency`       | Proposed urgency level                                   |
+| `department`    | Proposed responsible department                         |
+| `summary`       | Exactly ten-word summary of the hazard                   |
+| `justification` | Model's explanation for the classification               |
+| `metrics`       | Provider, model, latency, tokens, cost, and evidence     |
+
+The `metrics.evidence` field lists the prevention corpus fragments the backend retrieved and injected into the prompt — these are shown in the React UI under **Evidencia consultada** with identifier, title, section, version, and extract.
+
+### Submit your review
+
+Post a `ReviewRequest` to record your decision. The `notice_id` is the UUID from the inbox item.
+
+```bash
+POST /api/v1/notices/{notice_id}/reviews
+Content-Type: application/json
+```
+
+**Full request body:**
+
+```json
+{
+  "decision": "modified",
+  "reviewer": "Técnica demo",
+  "comment": "Urgencia debe ser alta.",
+  "expected_version": 0,
+  "urgency": "alta"
+}
+```
+
+<ParamField body="decision" type="string" required>
+  One of `approved`, `modified`, or `rejected`. See decision rules below.
+</ParamField>
+
+<ParamField body="reviewer" type="string" required>
+  Name of the technician performing the review (1–200 characters).
+</ParamField>
+
+<ParamField body="comment" type="string" required>
+  Free-text rationale for the decision (1–2000 characters).
+</ParamField>
+
+<ParamField body="expected_version" type="integer" required>
+  Must match the current `version` of the proposal. Prevents double-review conflicts.
+</ParamField>
+
+<ParamField body="category" type="string">
+  Corrected category. Only allowed when `decision` is `modified`.
+</ParamField>
+
+<ParamField body="urgency" type="string">
+  Corrected urgency. Only allowed when `decision` is `modified`.
+</ParamField>
+
+<ParamField body="department" type="string">
+  Corrected department. Only allowed when `decision` is `modified`.
+</ParamField>
+
+### Check the audit events
+
+After submitting a review, you can read the full immutable audit trail for the notice.
+
+```bash
+GET /api/v1/notices/{notice_id}/audit-events
+```
+
+The response is a list of `AuditEventRecord` objects:
+
+```json
+[
+  {
+    "id": 1,
+    "notice_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "triage_run_id": "7b1d2e8a-1234-5678-abcd-ef0123456789",
+    "event_type": "triage_created",
+    "previous_status": null,
+    "new_status": "pending_review",
+    "actor": null,
+    "created_at": "2026-09-08T10:00:00Z"
+  },
+  {
+    "id": 2,
+    "notice_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "triage_run_id": "7b1d2e8a-1234-5678-abcd-ef0123456789",
+    "event_type": "review_completed",
+    "previous_status": "pending_review",
+    "new_status": "modified",
+    "actor": "Técnica demo",
+    "created_at": "2026-09-08T10:05:00Z"
+  }
+]
+```
+
+Event types:
+
+| `event_type`       | When it is created                               |
+|--------------------|--------------------------------------------------|
+| `triage_created`   | A new AI proposal is persisted                   |
+| `review_completed` | A technician submits any review decision         |
+
+</Steps>
+
+## Review decisions
+
+There are three possible decisions, each with distinct rules.
+
+<AccordionGroup>
+
+<Accordion title="approved — confirm the AI classification">
+  The technician confirms the proposal exactly as the model produced it. The notice status transitions to `approved` and a `ClassificationDecision` is recorded with the original `category`, `urgency`, and `department`.
+
+  **Rules:** `category`, `urgency`, and `department` fields must **not** be included in the request body.
+
+  ```json
+  {
+    "decision": "approved",
+    "reviewer": "Técnica demo",
+    "comment": "Clasificación correcta.",
+    "expected_version": 0
+  }
+  ```
+</Accordion>
+
+<Accordion title="modified — correct one or more fields">
+  The technician accepts the proposal but corrects at least one classification field. The notice status transitions to `modified` and the `ClassificationDecision` records the corrected values.
+
+  **Rules:** At least one of `category`, `urgency`, or `department` **must** be provided. You may provide any combination of the three.
+
+  ```json
+  {
+    "decision": "modified",
+    "reviewer": "Técnica demo",
+    "comment": "Urgencia debe ser alta.",
+    "expected_version": 0,
+    "urgency": "alta"
+  }
+  ```
+</Accordion>
+
+<Accordion title="rejected — discard the proposal">
+  The technician discards the AI proposal entirely. The notice status transitions to `rejected` and **no** accepted `ClassificationDecision` is created.
+
+  **Rules:** `category`, `urgency`, and `department` fields must **not** be included in the request body.
+
+  ```json
+  {
+    "decision": "rejected",
+    "reviewer": "Técnica demo",
+    "comment": "El aviso no describe un riesgo clasificable.",
+    "expected_version": 0
+  }
+  ```
+</Accordion>
+
+</AccordionGroup>
+
+## Version control and conflict detection
+
+The `expected_version` field is the mechanism that prevents two technicians from reviewing the same proposal simultaneously or a technician from submitting a second decision on an already-reviewed notice.
+
+- Every new proposal starts at `version: 0`.
+- When you fetch a notice from the inbox, the `version` field tells you the current version.
+- Your `ReviewRequest` must include that same value in `expected_version`.
+- If another review has already been submitted (version has advanced), the API returns **`409 Conflict`** and does not overwrite the winning decision.
+
+This means you should always read `version` from the inbox response immediately before submitting a review, rather than assuming it is still `0`.
+
+```bash
+# 409 response body
+{
+  "error": {
+    "code": "conflict",
+    "message": "La revisión ya fue completada por otro actor."
+  },
+  "request_id": "uuid-generado-por-el-servidor"
+}
+```
+
+## React SPA inbox
+
+The React frontend provides a full-featured inbox that communicates with these same endpoints:
+
+- **Search bar** — full-text search against notice content.
+- **Filters** — status, urgency, category, and provider dropdowns, each sourced from `GET /api/v1/catalogs` so they always reflect the live domain values.
+- **Server-side pagination** — only the current page is loaded; page size is configurable.
+- **Detail view** — shows the proposal fields, justification, and the retrieved evidence fragments with source metadata.
+- **Audit timeline** — visualises the `triage_created` and `review_completed` events in chronological order, including the actor name and any classification corrections.
+
+<Note>
+  Notices that have already been reviewed (`approved`, `modified`, or `rejected`) can be reopened from the inbox in **read-only mode**. This lets you inspect the reviewer name, the status transition, and any field corrections that were applied — without the risk of accidentally submitting a second decision.
+</Note>

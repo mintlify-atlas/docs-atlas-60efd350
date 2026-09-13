@@ -1,0 +1,184 @@
+---
+title: "Comparing Ollama and Gemini Triage Results"
+sidebarTitle: "Provider Comparison"
+description: "Submit one hazard notice to both Ollama and Gemini concurrently, compare classifications, latency, tokens, and cost, then record a human reference decision."
+---
+
+The comparison endpoint gives you a side-by-side view of how the local Ollama model and the external Gemini model classify the exact same hazard notice. Rather than triaging a notice with one provider and then re-running it separately with the other, a single `POST /api/v1/comparisons` call runs both providers **concurrently** and returns a stable-ordered response — local first, then external. The result is a single comparison record; it does not create two independent operational notices.
+
+<Steps>
+
+### Submit a comparison
+
+Send the hazard text — and an optional location — to run both providers at once.
+
+```bash
+POST /api/v1/comparisons
+Content-Type: application/json
+```
+
+```json
+{
+  "text": "Hay humo junto a una salida.",
+  "location": "Zona demo"
+}
+```
+
+<ParamField body="text" type="string" required>
+  The hazard notice text (1–4000 characters, whitespace trimmed).
+</ParamField>
+
+<ParamField body="location" type="string">
+  Optional location context (1–200 characters). Not validated against a fixed catalogue; any free-text zone name is accepted.
+</ParamField>
+
+### Read the response
+
+The response contains a `comparison_id`, a `created_at` timestamp, and a `results` array that **always has exactly two entries** — index 0 is the local (Ollama) result, index 1 is the external (Gemini) result. This ordering is stable regardless of which provider finished first.
+
+```json
+{
+  "comparison_id": "a1b2c3d4-0000-0000-0000-111122223333",
+  "created_at": "2026-09-08T10:00:00Z",
+  "results": [
+    {
+      "provider": "local",
+      "result": {
+        "category": "incendio",
+        "urgency": "critica",
+        "summary": "Humo detectado en zona de salida requiere evacuación inmediata.",
+        "department": "seguridad",
+        "justification": "Matriz didáctica RM-INCE-001; presencia de humo indica riesgo activo."
+      },
+      "error_code": null,
+      "metrics": { "latency_ms": 1240, "total_tokens": 310, "api_cost": null }
+    },
+    {
+      "provider": "external",
+      "result": {
+        "category": "incendio",
+        "urgency": "alta",
+        "summary": "Humo detectado cerca salida requiere revisión inmediata del área.",
+        "department": "seguridad",
+        "justification": "Fragmento preventivo corpus v1; posible foco de incendio identificado."
+      },
+      "error_code": null,
+      "metrics": { "latency_ms": 980, "total_tokens": 295, "api_cost": "0.0001200" }
+    }
+  ],
+  "review": null
+}
+```
+
+Each entry in `results` is a `ComparisonProviderResult`:
+
+<ResponseField name="provider" type="string">
+  `local` or `external`.
+</ResponseField>
+
+<ResponseField name="result" type="object">
+  A `TriageResult` with `category`, `urgency`, `summary`, `department`, and `justification`. `null` if the provider failed.
+</ResponseField>
+
+<ResponseField name="error_code" type="string">
+  Present only when the provider failed. `null` on success.
+</ResponseField>
+
+<ResponseField name="metrics" type="object">
+  An `ExecutionMetrics` object with `provider`, `model`, `latency_ms`, `provider_attempts`, `repair_attempts`, `input_tokens`, `output_tokens`, `total_tokens`, `api_cost`, `api_cost_currency`, `json_valid`, `success`, and `evidence`.
+</ResponseField>
+
+### Compare field-by-field
+
+With both results in hand, inspect the classification fields that matter for the triage decision:
+
+| Field        | Local (Ollama)  | External (Gemini) | Match? |
+|--------------|-----------------|-------------------|--------|
+| `category`   | `incendio`      | `incendio`        | ✅     |
+| `urgency`    | `critica`       | `alta`            | ❌     |
+| `department` | `seguridad`     | `seguridad`       | ✅     |
+
+The React comparison view highlights each field in green (agreement) or amber (disagreement), and labels which provider was faster and how many repair cycles each needed.
+
+### Record a human reference decision
+
+After reviewing both results, you can record a single human reference classification for the comparison. This is stored as the ground truth for that input and is used later to compute `human_agreement_rate` in the metrics summary.
+
+```bash
+POST /api/v1/comparisons/{comparison_id}/review
+Content-Type: application/json
+```
+
+```json
+{
+  "category": "incendio",
+  "urgency": "critica",
+  "department": "seguridad",
+  "reviewer": "Técnica demo",
+  "comment": "Referencia humana verificada."
+}
+```
+
+<ParamField body="category" type="string" required>
+  The correct hazard category as determined by the technician.
+</ParamField>
+
+<ParamField body="urgency" type="string" required>
+  The correct urgency level.
+</ParamField>
+
+<ParamField body="department" type="string" required>
+  The correct responsible department.
+</ParamField>
+
+<ParamField body="reviewer" type="string" required>
+  Name of the technician providing the reference (1–200 characters).
+</ParamField>
+
+<ParamField body="comment" type="string" required>
+  Rationale for the reference decision (1–2000 characters).
+</ParamField>
+
+The response is a `ComparisonReviewRecord` that echoes the submitted fields and adds `id`, `comparison_id`, and `created_at`.
+
+</Steps>
+
+## Key behaviours
+
+<CardGroup cols={2}>
+
+<Card title="One record, two results" icon="files">
+  A comparison does **not** create two separate notices in the operational inbox. It creates a single comparison record with two provider results. The `POST /api/v1/triage` endpoint is the one that creates notices.
+</Card>
+
+<Card title="Concurrent execution" icon="bolt">
+  Both providers start simultaneously using a `ThreadPoolExecutor`. Total response time equals the **slower** of the two providers, not their combined sum. Ollama does not block Gemini from starting, and vice versa.
+</Card>
+
+<Card title="Stable ordering" icon="list-ol">
+  The `results` array is always ordered `local` then `external`, regardless of which provider returned first. The API and the React UI are both guaranteed to receive a consistent structure.
+</Card>
+
+<Card title="Partial failures" icon="triangle-exclamation">
+  If one provider fails, its `result` is `null` and `error_code` carries the reason. The comparison record is still written and the successful provider's result is preserved. A missing `EXTERNAL_API_KEY` causes a `503` before the comparison is attempted.
+</Card>
+
+</CardGroup>
+
+## Conflict detection
+
+Submitting a review to an already-reviewed comparison returns **`409 Conflict`**. Only one human reference classification is allowed per comparison record; this prevents the reference from being silently overwritten.
+
+```json
+{
+  "error": {
+    "code": "conflict",
+    "message": "La comparación ya fue revisada."
+  },
+  "request_id": "uuid-generado-por-el-servidor"
+}
+```
+
+<Tip>
+  The React comparison view also lets you run the full **14-case benchmark dataset** through both providers on demand — directly from the UI, without any extra API calls. Each case shows per-field accuracy, JSON validity, mean latency, and estimated cost for both Ollama and Gemini side by side.
+</Tip>

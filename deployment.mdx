@@ -1,0 +1,146 @@
+---
+title: "Deploy IAviso Seguro with Docker Compose"
+sidebarTitle: "Deployment"
+description: "Build and run IAviso Seguro as a single Docker container serving both the FastAPI backend and the prebuilt React SPA."
+---
+
+The Docker deployment bundles the entire application into a single container. During the image build, a Node 22 stage compiles the React SPA (`npm ci && npm run build`) and copies the resulting static assets into the Python runtime image. FastAPI then serves those files directly from the `frontend-react/dist/` directory alongside the REST API, so no separate web server or reverse proxy is needed. The container exposes only port `8000`; Ollama continues to run on the host machine and is reached from inside the container via `host.docker.internal`.
+
+<Warning>
+  Never commit `.env` or the SQLite database file (`data/local/iaviso.db`) to version control. Both are excluded from the repository by default. Committing either would expose credentials or user data.
+</Warning>
+
+## Prerequisites
+
+- **Docker** with the Compose plugin (`docker compose` v2)
+- **Ollama** running on the host with a tool-calling model already pulled (e.g. `llama3.2:3b`)
+- A `.env` file prepared from `.env.example` (see Step 1)
+
+## Steps
+
+<Steps>
+  <Step title="Prepare your environment file">
+    Copy the example configuration to `.env` in the project root:
+
+    ```powershell
+    Copy-Item .env.example .env
+    ```
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    Key variables to review before building:
+
+    | Variable | Default | Notes |
+    |---|---|---|
+    | `LOCAL_MODEL` | `llama3.2:3b` | Must match a model already pulled in Ollama on the host |
+    | `EXTERNAL_API_KEY` | *(empty)* | Set to your Google AI key to enable `provider=external` (Gemini) |
+    | `EXTERNAL_MODEL` | `gemini-3.5-flash-lite` | Gemini model identifier |
+    | `DATABASE_PATH` | `data/local/iaviso.db` | Overridden to `/app/data/local/iaviso.db` inside the container |
+
+    If `EXTERNAL_API_KEY` is left empty, the API responds with `503` for any `provider=external` request and never attempts an external connection.
+  </Step>
+
+  <Step title="Build and start the container">
+    From the project root, run:
+
+    ```bash
+    docker compose up --build
+    ```
+
+    Docker Compose reads `compose.yaml`, which defines a single service (`iaviso-seguro`) built from the local `Dockerfile`. The build has two stages:
+
+    1. **`frontend-builder`** (Node 22 Alpine) — runs `npm ci` and `npm run build` to produce `frontend-react/dist/`.
+    2. **`runtime`** (Python 3.12 slim) — installs Python dependencies, copies backend code, config, knowledge base, evaluation data, and the compiled React assets.
+
+    The `compose.yaml` also overrides `OLLAMA_BASE_URL` to `http://host.docker.internal:11434` so the container can reach Ollama on the host without any network changes.
+
+    ```yaml
+    environment:
+      DATABASE_PATH: /app/data/local/iaviso.db
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      LOCAL_MODEL: ${LOCAL_MODEL:-llama3.2:3b}
+      EXTERNAL_API_KEY: ${EXTERNAL_API_KEY:-}
+    ```
+  </Step>
+
+  <Step title="Open the application">
+    Once the container starts and FastAPI reports ready, open your browser at:
+
+    ```
+    http://127.0.0.1:8000
+    ```
+
+    The React SPA loads from the static files served by FastAPI. The full interface — hazard submission, professional inbox with search and pagination, human review, risk matrix, provider comparison, and metrics panel — is available at this single address.
+
+    Verify the API is healthy with:
+
+    ```bash
+    curl http://127.0.0.1:8000/health
+    ```
+
+    A healthy response looks like:
+
+    ```json
+    {
+      "status": "ok",
+      "services": [
+        { "name": "fastapi",  "available": true },
+        { "name": "ollama",   "available": true },
+        { "name": "gemini",   "available": false },
+        { "name": "sqlite",   "available": true }
+      ]
+    }
+    ```
+
+    Ollama is reported as available only when the configured model is installed. Gemini is shown as unavailable when `EXTERNAL_API_KEY` is not set — this is normal. Health probes run in parallel and are capped at `HEALTH_CHECK_TIMEOUT_SECONDS` (default: 2 s); a dependency being absent does not turn the base API health into an HTTP error.
+
+    <Tip>
+      The interactive API docs remain available at **`http://127.0.0.1:8000/docs`** in Docker deployments, giving you a live interface to every endpoint.
+    </Tip>
+  </Step>
+
+  <Step title="Stop the deployment">
+    To stop the container and remove it:
+
+    ```bash
+    docker compose down
+    ```
+
+    The SQLite database is preserved in `data/local/` on your host machine (see [SQLite persistence](#sqlite-persistence) below) and will be picked up automatically on the next `docker compose up`.
+  </Step>
+</Steps>
+
+## SQLite Persistence
+
+The database file lives at `data/local/iaviso.db` on the host and is bind-mounted into the container at `/app/data/local/iaviso.db`. This means:
+
+- **Data survives container restarts and rebuilds** — you do not lose proposals or reviews when you run `docker compose up --build` again.
+- **Backups are straightforward** — copy `data/local/iaviso.db` to a safe location.
+- The directory `data/local/` is created inside the container on first build (`RUN mkdir -p data/local`), but the volume mount from the host takes precedence at runtime.
+
+The container's built-in health check (`HEALTHCHECK` in the `Dockerfile`) polls `http://127.0.0.1:8000/health` every 30 seconds with a 5-second timeout, starting 10 seconds after container launch.
+
+## Streamlit Fallback
+
+A Streamlit dashboard is preserved as an academic fallback. It can be run locally (outside Docker) from the project root:
+
+```powershell
+python -m streamlit run frontend/app.py
+```
+
+```bash
+python -m streamlit run frontend/app.py
+```
+
+This interface connects to a running FastAPI backend. It is intended for academic review and exploratory use, not production workflows.
+
+## Continuous Integration
+
+GitHub Actions runs on every `push` and `pull_request` via `.github/workflows/ci.yml`. Two independent jobs execute:
+
+- **Backend** (Python 3.12): `python -m pytest -q` — all Ollama and Gemini calls are replaced by local doubles; no secrets, downloaded models, or external network access are required.
+- **Frontend** (Node 22): `npm ci`, `npm test`, and `npm run build`.
+
+The same workflow validates that the Docker build would succeed for every change, catching dependency or build-step regressions before they reach a deployed environment.

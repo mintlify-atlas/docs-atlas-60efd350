@@ -1,0 +1,80 @@
+---
+title: "GET /health — API and Service Health Check"
+sidebarTitle: "GET /health"
+description: "GET /health — returns API status and availability of Ollama, Gemini, and SQLite. Each dependency is probed in parallel within a configurable timeout."
+---
+
+The `/health` endpoint gives you a snapshot of the API's own availability and the reachability of every service it depends on. It is designed for monitoring dashboards, load-balancer liveness probes, and manual diagnostics during local development.
+
+## Endpoint
+
+```
+GET /health
+```
+
+## Parameters
+
+This endpoint accepts no query parameters, path parameters, or request body.
+
+## Parallel Dependency Probing
+
+Each dependency is probed concurrently, so the total response time is bounded by the slowest single check rather than the sum of all checks. The timeout is controlled by the `HEALTH_CHECK_TIMEOUT_SECONDS` setting (default: **2 seconds**).
+
+| Service ID | Label | Probe method |
+|------------|-------|-------------|
+| `api` | FastAPI | Constructed in-process — always `available` |
+| `ollama` | Ollama | HTTP request to `/api/tags`; reports the installed model name in `detail` if reachable |
+| `gemini` | Gemini | Model metadata call; returns `not_configured` if `EXTERNAL_API_KEY` is not set |
+| `sqlite` | SQLite | Minimal read query against the configured database path |
+
+## Response
+
+The HTTP status code is always **200**, even when individual dependencies are unavailable. Failure information is surfaced in the response body without affecting the status code, so monitors can distinguish between "API is up but Ollama is unreachable" and "API itself is down."
+
+### `HealthResponse` Schema
+
+<ResponseField name="status" type="string">
+  Always `"ok"`. Indicates that the FastAPI process is running and able to serve requests.
+</ResponseField>
+
+<ResponseField name="services" type="array of ServiceHealth">
+  One entry per monitored dependency.
+
+  <Expandable title="ServiceHealth fields">
+    <ResponseField name="id" type="string">
+      Machine-readable identifier. One of: `api`, `ollama`, `gemini`, `sqlite`.
+    </ResponseField>
+    <ResponseField name="label" type="string">
+      Human-readable display name (e.g. `"Ollama"`, `"SQLite"`).
+    </ResponseField>
+    <ResponseField name="status" type="string">
+      Availability state. One of:
+      - `available` — the service responded successfully within the timeout
+      - `unavailable` — the service could not be reached or returned an error
+      - `not_configured` — the service requires configuration that is absent (e.g. no `EXTERNAL_API_KEY` for Gemini)
+    </ResponseField>
+    <ResponseField name="detail" type="string | null">
+      Optional extra context. For Ollama this will be the installed model name (e.g. `"llama3.2:3b"`); `null` otherwise.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "status": "ok",
+  "services": [
+    {"id": "api",    "label": "FastAPI", "status": "available",      "detail": null},
+    {"id": "ollama", "label": "Ollama",  "status": "available",      "detail": "llama3.2:3b"},
+    {"id": "gemini", "label": "Gemini",  "status": "not_configured", "detail": null},
+    {"id": "sqlite", "label": "SQLite",  "status": "available",      "detail": null}
+  ]
+}
+```
+
+## Example Request
+
+```bash
+curl http://127.0.0.1:8000/health
+```

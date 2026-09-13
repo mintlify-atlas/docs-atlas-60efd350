@@ -1,0 +1,232 @@
+---
+title: "Notice Endpoints — List, Audit, and Review Proposals"
+sidebarTitle: "Notices"
+description: "GET /api/v1/notices lists and filters triage proposals. GET audit-events returns the audit trail. POST reviews submits a human decision."
+---
+
+The notices endpoints let you browse all triage proposals, inspect their full audit trail, and record human review decisions. Each notice represents a single hazard report; a notice can accumulate multiple triage runs over its lifetime (e.g. if it is re-triaged with a different provider). The review endpoint uses optimistic concurrency to prevent conflicting simultaneous decisions.
+
+---
+
+## GET /api/v1/notices
+
+Returns a paginated list of notices filtered by any combination of status, urgency, provider, category, or free-text search.
+
+### Query Parameters
+
+<ParamField query="search" type="string">
+  Full-text search string applied against the notice text and location. Maximum **200 characters**. Omit to return all notices.
+</ParamField>
+
+<ParamField query="status" type="string">
+  Filter by proposal status. One of: `pending_review`, `approved`, `modified`, `rejected`.
+</ParamField>
+
+<ParamField query="urgency" type="string">
+  Filter by urgency level. One of: `baja`, `media`, `alta`, `critica`.
+</ParamField>
+
+<ParamField query="provider" type="string">
+  Filter by the AI provider used for triage. One of: `local`, `external`.
+</ParamField>
+
+<ParamField query="category" type="string">
+  Filter by hazard category. One of: `riesgo_electrico`, `caidas_obstaculos`, `incendio`, `maquinaria`, `sustancias_peligrosas`, `problemas_estructurales`, `falta_epi`, `ergonomia`, `otros`.
+</ParamField>
+
+<ParamField query="page" type="integer" default="1">
+  Page number (1-indexed). Must be ≥ 1.
+</ParamField>
+
+<ParamField query="limit" type="integer" default="20">
+  Number of items per page. Between **1 and 100**.
+</ParamField>
+
+### Response — `NoticePage`
+
+<ResponseField name="items" type="array of NoticeRecord">
+  The notices on the current page. Each `NoticeRecord` contains:
+  - `id` (UUID) — notice identifier
+  - `text` (string) — original hazard description
+  - `location` (string | null) — optional location context
+  - `created_at` (datetime) — when the notice was first created
+  - `triage_runs` (array of `TriageRunRecord`) — all triage executions for this notice
+</ResponseField>
+
+<ResponseField name="page" type="integer">
+  Current page number.
+</ResponseField>
+
+<ResponseField name="limit" type="integer">
+  Items per page as requested.
+</ResponseField>
+
+<ResponseField name="total" type="integer">
+  Total number of notices matching the applied filters.
+</ResponseField>
+
+<ResponseField name="pages" type="integer">
+  Total number of pages given the current `limit`.
+</ResponseField>
+
+### Example Request
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/notices?status=pending_review&urgency=alta&page=1&limit=10"
+```
+
+---
+
+## GET /api/v1/notices/\{notice_id\}/audit-events
+
+Returns the complete ordered audit trail for a single notice. Every state transition — from initial triage creation to each human review — is recorded as an immutable audit event.
+
+### Path Parameters
+
+<ParamField path="notice_id" type="string (UUID)" required>
+  The UUID of the notice whose audit events you want to retrieve.
+</ParamField>
+
+### Response — Array of `AuditEventRecord`
+
+<ResponseField name="id" type="integer">
+  Monotonically increasing identifier for the event.
+</ResponseField>
+
+<ResponseField name="notice_id" type="string (UUID)">
+  The notice this event belongs to.
+</ResponseField>
+
+<ResponseField name="triage_run_id" type="string (UUID)">
+  The specific triage run that triggered this event.
+</ResponseField>
+
+<ResponseField name="event_type" type="string">
+  Type of the event. One of:
+  - `triage_created` — a new triage proposal was stored
+  - `review_completed` — a human reviewer submitted a decision
+</ResponseField>
+
+<ResponseField name="previous_status" type="string | null">
+  The proposal status before this event. `null` for `triage_created` events (there is no prior state).
+</ResponseField>
+
+<ResponseField name="new_status" type="string">
+  The proposal status after this event. One of: `pending_review`, `approved`, `modified`, `rejected`.
+</ResponseField>
+
+<ResponseField name="actor" type="string | null">
+  Name of the reviewer who triggered this event. `null` for `triage_created` events.
+</ResponseField>
+
+<ResponseField name="created_at" type="string (datetime)">
+  ISO 8601 timestamp of when the event was recorded.
+</ResponseField>
+
+### Error Responses
+
+| Status | Error Code | Cause |
+|--------|------------|-------|
+| `404` | `notice_not_found` | No notice exists with the given `notice_id`. |
+
+### Example Request
+
+```bash
+curl http://127.0.0.1:8000/api/v1/notices/3fa85f64-5717-4562-b3fc-2c963f66afa6/audit-events
+```
+
+---
+
+## POST /api/v1/notices/\{notice_id\}/reviews
+
+Submits a human review decision for the latest triage proposal on a notice. The review transitions the proposal out of `pending_review` and records an audit event. Optimistic concurrency control via `expected_version` prevents two reviewers from unknowingly overwriting each other.
+
+### Path Parameters
+
+<ParamField path="notice_id" type="string (UUID)" required>
+  The UUID of the notice to review.
+</ParamField>
+
+### Request Body
+
+<ParamField body="decision" type="string" required>
+  The review outcome. One of:
+  - `"approved"` — the AI proposal is accepted as-is
+  - `"modified"` — the AI proposal is accepted with corrections (requires at least one correction field)
+  - `"rejected"` — the AI proposal is rejected
+</ParamField>
+
+<ParamField body="reviewer" type="string" required>
+  Name or identifier of the person submitting the review. Between **1 and 200 characters**.
+</ParamField>
+
+<ParamField body="comment" type="string" required>
+  Free-text explanation of the decision. Between **1 and 2000 characters**.
+</ParamField>
+
+<ParamField body="expected_version" type="integer" required>
+  The version number of the proposal you are reviewing, as returned by the triage or list endpoints. The server rejects the review with `409` if the proposal has been modified since you last fetched it. Starts at `0` for a freshly created proposal.
+</ParamField>
+
+<ParamField body="category" type="string">
+  Corrected category. Only valid (and required to have at least one correction) when `decision` is `"modified"`. Must be a value from the [catalogs endpoint](/api/catalogs).
+</ParamField>
+
+<ParamField body="urgency" type="string">
+  Corrected urgency level. Only valid when `decision` is `"modified"`.
+</ParamField>
+
+<ParamField body="department" type="string">
+  Corrected responsible department. Only valid when `decision` is `"modified"`.
+</ParamField>
+
+<Note>
+  The `modified` decision requires at least one of `category`, `urgency`, or `department` to be provided. Conversely, `approved` and `rejected` decisions must **not** include any correction fields — the server will reject the request with a validation error if they do.
+</Note>
+
+### Response — `ReviewResponse`
+
+<ResponseField name="notice_id" type="string (UUID)">
+  The notice that was reviewed.
+</ResponseField>
+
+<ResponseField name="triage_run" type="TriageRunRecord">
+  The updated triage run record reflecting the new status and the review decision.
+</ResponseField>
+
+### Error Responses
+
+| Status | Error Code | Cause |
+|--------|------------|-------|
+| `404` | `notice_not_found` | No notice exists with the given `notice_id`. |
+| `409` | `review_conflict` | The proposal's current version does not match `expected_version` (concurrent update detected), or the proposal has already been reviewed. |
+| `500` | `persistence_error` | The review could not be written to the database. |
+
+### Example Request — Approve
+
+```bash
+curl -X POST \
+  http://127.0.0.1:8000/api/v1/notices/3fa85f64-5717-4562-b3fc-2c963f66afa6/reviews \
+  -H "Content-Type: application/json" \
+  -d '{
+    "decision": "approved",
+    "reviewer": "Ana García",
+    "comment": "La clasificación es correcta.",
+    "expected_version": 0
+  }'
+```
+
+### Example Request — Modify
+
+```bash
+curl -X POST \
+  http://127.0.0.1:8000/api/v1/notices/3fa85f64-5717-4562-b3fc-2c963f66afa6/reviews \
+  -H "Content-Type: application/json" \
+  -d '{
+    "decision": "modified",
+    "reviewer": "Ana García",
+    "comment": "La urgencia debería ser alta, no media.",
+    "expected_version": 0,
+    "urgency": "alta"
+  }'
+```

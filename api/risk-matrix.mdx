@@ -1,0 +1,79 @@
+---
+title: "GET /api/v1/risk-matrix — Fetch the Active Risk Matrix"
+sidebarTitle: "GET /risk-matrix"
+description: "GET /api/v1/risk-matrix returns the validated risk matrix document with all rules, urgency recommendations, departments, and evidence references."
+---
+
+The risk matrix is the didactic reference document that the AI uses during triage. When the triage engine receives a hazard notice, it consults this matrix via an internal tool call to look up the recommended urgency and responsible department for the detected category. The `/risk-matrix` endpoint exposes the validated, in-memory version of that document so you can inspect the exact rules the model is working from.
+
+<Note>
+  The risk matrix is didactic and **non-normative**. It is an academic reference aid and does not constitute legal or regulatory guidance. The disclaimer field in the response will always contain an explicit statement to this effect.
+</Note>
+
+## Endpoint
+
+```
+GET /api/v1/risk-matrix
+```
+
+## Parameters
+
+This endpoint accepts no query parameters, path parameters, or request body.
+
+## Response — `RiskMatrixDocument`
+
+<ResponseField name="version" type="string">
+  Semantic version of the active risk matrix (e.g. `"1.0.0"`). Follows the `MAJOR.MINOR.PATCH` format.
+</ResponseField>
+
+<ResponseField name="disclaimer" type="string">
+  Non-normative disclaimer required by the schema. Always contains the phrase "no es normativa".
+</ResponseField>
+
+<ResponseField name="rules" type="array of RiskMatrixRule">
+  One rule per hazard category. The matrix always contains exactly nine rules — one for each value in the categories catalog.
+
+  <Expandable title="RiskMatrixRule fields">
+    <ResponseField name="rule_id" type="string">
+      Unique identifier for the rule. Follows the pattern `RM-{CATEGORY}-{NNN}` (e.g. `RM-ELEC-001`).
+    </ResponseField>
+    <ResponseField name="category" type="string">
+      The hazard category this rule applies to. One of the nine canonical category values.
+    </ResponseField>
+    <ResponseField name="conditions" type="array of string">
+      One or more observable conditions that indicate this category of hazard. Each condition is a short descriptive string (up to 500 characters). Conditions within a rule are unique.
+    </ResponseField>
+    <ResponseField name="recommended_urgency" type="string">
+      The urgency level recommended for this category under typical conditions: `baja`, `media`, `alta`, or `critica`.
+    </ResponseField>
+    <ResponseField name="department" type="string">
+      The department recommended as first responder for this category.
+    </ResponseField>
+    <ResponseField name="evidence" type="string">
+      A short reference (up to 500 characters) to the regulatory or technical source supporting this rule.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Rule
+
+```json
+{
+  "rule_id": "RM-ELEC-001",
+  "category": "riesgo_electrico",
+  "conditions": [
+    "Cable pelado o deteriorado visible",
+    "Cuadro eléctrico sin tapa o accesible",
+    "Humedad próxima a instalación eléctrica"
+  ],
+  "recommended_urgency": "alta",
+  "department": "mantenimiento",
+  "evidence": "RD 614/2001 sobre disposiciones mínimas para la protección de la salud y seguridad de los trabajadores frente al riesgo eléctrico."
+}
+```
+
+## Example Request
+
+```bash
+curl http://127.0.0.1:8000/api/v1/risk-matrix
+```

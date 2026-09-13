@@ -1,0 +1,103 @@
+{
+  "projectType": "saas",
+  "projectName": "IAviso Seguro",
+  "projectDescription": "An AI-assisted triage platform that converts unstructured workplace hazard reports into prioritized, classified proposals for human review.",
+  "theme": "luma",
+  "primaryColor": "#2563EB",
+  "lightColor": "#EFF6FF",
+  "darkColor": "#1E3A5F",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "deployment"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/triage-workflow",
+              "concepts/providers",
+              "concepts/risk-matrix",
+              "concepts/rag-evidence"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment",
+              "configuration/providers",
+              "configuration/persistence"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/human-review",
+              "guides/provider-comparison",
+              "guides/evaluation-benchmark",
+              "guides/synthetic-demos"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/overview"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/health",
+              "api/triage",
+              "api/notices",
+              "api/comparisons",
+              "api/evaluations",
+              "api/catalogs",
+              "api/risk-matrix",
+              "api/metrics"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "AI-assisted triage of workplace hazard notices using Ollama (local) and Gemini (external) providers",
+    "Strict human review workflow: every AI proposal must be approved, modified, or rejected by a technician",
+    "Risk matrix lookup tool (consultar_matriz_riesgos) with nine closed hazard categories",
+    "RAG-based evidence retrieval from a versioned local prevention corpus",
+    "Side-by-side provider comparison with concurrent execution and stable ordering",
+    "Versioned optimistic-concurrency review with 409 conflict detection",
+    "Full audit timeline per notice: triage creation, state transitions, reviewer identity, and corrections",
+    "Paginated, filterable notices inbox with search by status, urgency, category, and provider",
+    "Reproducible benchmark across 14 labelled cases measuring accuracy, latency, and cost",
+    "Aggregated metrics summary: acceptance rate, correction rate, human agreement, token usage, and API cost",
+    "React/TypeScript SPA served from FastAPI in Docker; Streamlit dashboard kept as academic fallback",
+    "GitHub Actions CI for both backend (pytest) and frontend (vitest + build) without real provider credentials"
+  ],
+  "publicApiSurface": [
+    "GET /health",
+    "GET /api/v1/catalogs",
+    "GET /api/v1/risk-matrix",
+    "POST /api/v1/triage",
+    "GET /api/v1/notices",
+    "GET /api/v1/notices/{notice_id}/audit-events",
+    "POST /api/v1/notices/{notice_id}/reviews",
+    "POST /api/v1/comparisons",
+    "POST /api/v1/comparisons/{comparison_id}/review",
+    "GET /api/v1/metrics/summary",
+    "POST /api/v1/evaluations"
+  ]
+}

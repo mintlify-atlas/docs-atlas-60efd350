@@ -1,0 +1,171 @@
+---
+title: "Comparison Endpoints — Side-by-Side Provider Results"
+sidebarTitle: "Comparisons"
+description: "POST /api/v1/comparisons runs one notice through both Ollama and Gemini concurrently. POST /comparisons/{id}/review saves a human reference decision."
+---
+
+The comparisons endpoints let you evaluate both AI providers against the same hazard text in a single request. The notice is submitted to Ollama and Gemini concurrently, and the results are stored together so you can analyse how the two providers' outputs differ on identical input. Comparisons do **not** create notices in the main triage workflow — they are a separate, dedicated record type for evaluation and research purposes.
+
+---
+
+## POST /api/v1/comparisons
+
+Runs a single hazard text through both providers (Ollama as `local` and Gemini as `external`) concurrently using a two-thread executor. Both calls are submitted before either result is awaited, so the total latency equals the slower of the two providers rather than their sum. Results are always returned in a stable order: `local` first, `external` second.
+
+### Request Body
+
+<ParamField body="text" type="string" required>
+  The free-text hazard description to submit to both providers. Between **1 and 4000 characters** (whitespace stripped).
+</ParamField>
+
+<ParamField body="location" type="string">
+  Optional location context. Between **1 and 200 characters** when provided.
+</ParamField>
+
+### Example Request Body
+
+```json
+{
+  "text": "Cable eléctrico pelado junto al panel de distribución del almacén.",
+  "location": "Almacén principal"
+}
+```
+
+### Response — `ComparisonResponse`
+
+<ResponseField name="comparison_id" type="string (UUID)">
+  Stable identifier for this comparison record.
+</ResponseField>
+
+<ResponseField name="created_at" type="string (datetime)">
+  ISO 8601 timestamp of when the comparison was persisted.
+</ResponseField>
+
+<ResponseField name="results" type="array of ComparisonProviderResult">
+  Always exactly two entries: index 0 is `local` (Ollama), index 1 is `external` (Gemini). Each entry contains:
+
+  <Expandable title="ComparisonProviderResult fields">
+    <ResponseField name="provider" type="string">
+      `"local"` or `"external"`.
+    </ResponseField>
+    <ResponseField name="result" type="TriageResult | null">
+      The structured classification proposed by this provider, or `null` if the run failed.
+      Contains `category`, `urgency`, `department`, `summary`, and `justification`.
+    </ResponseField>
+    <ResponseField name="error_code" type="string | null">
+      Machine-readable error code if the run failed (e.g. `"provider_unavailable"`, `"invalid_provider_output"`). `null` on success.
+    </ResponseField>
+    <ResponseField name="metrics" type="ExecutionMetrics">
+      Full telemetry for this provider's run: latency, token counts, cost, attempt counts, and more. See the [triage endpoint](/api/triage) for the complete `ExecutionMetrics` field reference.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="review" type="ComparisonReviewRecord | null">
+  `null` until a human submits a reference decision via the review endpoint.
+</ResponseField>
+
+<Note>
+  A comparison failure on one provider does not abort the other. If Gemini is not configured, for example, the `external` result will carry `result: null` and an `error_code` of `"provider_unavailable"` while the `local` result proceeds normally.
+</Note>
+
+### Example Request
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/comparisons \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Cable eléctrico pelado junto al panel de distribución del almacén.",
+    "location": "Almacén principal"
+  }'
+```
+
+---
+
+## POST /api/v1/comparisons/\{comparison_id\}/review
+
+Saves a single human reference decision for a comparison. This records what a domain expert considers the correct classification for the submitted text, enabling accuracy evaluation against both providers' outputs. Each comparison can only be reviewed **once**.
+
+### Path Parameters
+
+<ParamField path="comparison_id" type="string (UUID)" required>
+  The UUID of the comparison to review.
+</ParamField>
+
+### Request Body
+
+<ParamField body="category" type="string" required>
+  The human expert's chosen hazard category. Must be a value from the [catalogs endpoint](/api/catalogs).
+</ParamField>
+
+<ParamField body="urgency" type="string" required>
+  The human expert's chosen urgency level: `baja`, `media`, `alta`, or `critica`.
+</ParamField>
+
+<ParamField body="department" type="string" required>
+  The human expert's chosen responsible department: `prevencion`, `mantenimiento`, `seguridad`, or `limpieza`.
+</ParamField>
+
+<ParamField body="reviewer" type="string" required>
+  Name or identifier of the person submitting the decision. Between **1 and 200 characters**.
+</ParamField>
+
+<ParamField body="comment" type="string" required>
+  Free-text justification for the classification. Between **1 and 2000 characters**.
+</ParamField>
+
+### Response — `ComparisonReviewRecord`
+
+<ResponseField name="id" type="string (UUID)">
+  Identifier for this review record.
+</ResponseField>
+
+<ResponseField name="comparison_id" type="string (UUID)">
+  The comparison this review belongs to.
+</ResponseField>
+
+<ResponseField name="category" type="string">
+  Human-selected hazard category.
+</ResponseField>
+
+<ResponseField name="urgency" type="string">
+  Human-selected urgency level.
+</ResponseField>
+
+<ResponseField name="department" type="string">
+  Human-selected responsible department.
+</ResponseField>
+
+<ResponseField name="reviewer" type="string">
+  The reviewer who submitted the decision.
+</ResponseField>
+
+<ResponseField name="comment" type="string">
+  The reviewer's comment.
+</ResponseField>
+
+<ResponseField name="created_at" type="string (datetime)">
+  ISO 8601 timestamp of when the review was saved.
+</ResponseField>
+
+### Error Responses
+
+| Status | Error Code | Cause |
+|--------|------------|-------|
+| `404` | `comparison_not_found` | No comparison exists with the given `comparison_id`. |
+| `409` | `comparison_review_conflict` | This comparison already has a human reference decision. |
+
+### Example Request
+
+```bash
+curl -X POST \
+  http://127.0.0.1:8000/api/v1/comparisons/7c9e6679-7425-40de-944b-e07fc1f90ae7/review \
+  -H "Content-Type: application/json" \
+  -d '{
+    "category": "riesgo_electrico",
+    "urgency": "alta",
+    "department": "mantenimiento",
+    "reviewer": "Carlos López",
+    "comment": "Riesgo eléctrico evidente por el estado del cable. Urgencia alta justificada."
+  }'
+```

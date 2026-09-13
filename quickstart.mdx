@@ -1,47 +1,216 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with IAviso Seguro"
+sidebarTitle: "Quickstart"
+description: "Install dependencies, start the FastAPI backend and React interface, and submit your first triage request — all in under 10 minutes."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
+This guide walks you through cloning the repository, setting up a Python virtual environment, configuring the local Ollama provider, and running both the FastAPI backend and the React SPA. By the end you will have a fully functional local instance and will have submitted your first hazard-triage request through the API.
 
 ## Prerequisites
 
-Before you begin, you must have:
+<Info>
+  Before you begin, make sure the following are available on your machine:
 
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
+  - **Python 3.11 or higher**
+  - **Node.js 20.19+ or 22.12+** (with npm)
+  - **[Ollama](https://ollama.com/)** installed and accessible on `PATH`
+  - **Git**
+</Info>
 
-## Get started
+## Steps
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Clone the repo and create a virtual environment">
+    Clone the repository and set up an isolated Python environment. On Windows (PowerShell):
+
+    ```powershell
+    git clone https://github.com/elenacarino-max/IAviso_Seguro.git
+    cd IAviso_Seguro
+
+    python -m venv .venv
+    .\.venv\Scripts\Activate.ps1
+    python -m pip install -r requirements-dev.txt
+    ```
+
+    On macOS/Linux:
 
     ```bash
-    npm install your-package
+    git clone https://github.com/elenacarino-max/IAviso_Seguro.git
+    cd IAviso_Seguro
+
+    python -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements-dev.txt
     ```
+
+    `requirements-dev.txt` includes all runtime and test dependencies. To reproduce the exact validated environment use `requirements-lock.txt` instead (generated with Python 3.14 on Windows).
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+
+  <Step title="Configure environment variables">
+    Copy the provided example file to create your local configuration:
+
+    ```powershell
+    Copy-Item .env.example .env
+    ```
 
     ```bash
-    your-cli init
+    cp .env.example .env
     ```
+
+    Open `.env` and review the key variables for the local provider:
+
+    | Variable | Default | Purpose |
+    |---|---|---|
+    | `LOCAL_MODEL` | `llama3.2:3b` | Ollama model name to use for triage |
+    | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | URL of the local Ollama server |
+    | `LLM_TIMEOUT_SECONDS` | `30` | Maximum wait per LLM call |
+    | `OLLAMA_TEMPERATURE` | `0` | Sampling temperature |
+    | `DATABASE_PATH` | `data/local/iaviso.db` | SQLite database file path |
+
+    To enable the Gemini external provider, set `EXTERNAL_API_KEY` to your Google AI API key. If the key is absent the API returns `503` for `provider=external` requests without attempting a connection.
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+
+  <Step title="Pull and start the Ollama model">
+    Download a tool-calling capable model. The default model used in manual verification is `llama3.2:3b` (~2 GB on disk):
+
+    ```powershell
+    ollama pull llama3.2:3b
+    ```
 
     ```bash
-    your-cli start
+    ollama pull llama3.2:3b
     ```
+
+    If Ollama is not already running as a background service, start it in a separate terminal:
+
+    ```powershell
+    ollama serve
+    ```
+
+    ```bash
+    ollama serve
+    ```
+
+    IAviso Seguro's `GET /health` endpoint checks that the configured model is installed and reports Ollama's availability without exposing internal URLs or credentials.
+  </Step>
+
+  <Step title="Start the FastAPI backend">
+    From the project root (with your virtual environment active), launch the API with hot-reload:
+
+    ```powershell
+    python -m uvicorn backend.app.main:app --reload
+    ```
+
+    ```bash
+    python -m uvicorn backend.app.main:app --reload
+    ```
+
+    The API listens on `http://127.0.0.1:8000`. You can verify it is healthy immediately:
+
+    ```bash
+    curl http://127.0.0.1:8000/health
+    ```
+
+    <Tip>
+      The interactive API documentation is available at **`http://127.0.0.1:8000/docs`** as soon as the server starts. Every endpoint, request schema, and response contract is browsable and testable there.
+    </Tip>
+  </Step>
+
+  <Step title="Install and start the React interface">
+    Open a **new terminal**, navigate to `frontend-react`, install dependencies, and start the Vite dev server:
+
+    ```powershell
+    cd frontend-react
+    npm install
+    npm run dev
+    ```
+
+    ```bash
+    cd frontend-react
+    npm install
+    npm run dev
+    ```
+
+    The SPA opens at **`http://127.0.0.1:5173`**. Vite proxies all `/api` requests to `http://127.0.0.1:8000`, so no CORS configuration is needed in development.
+  </Step>
+
+  <Step title="Submit your first triage request">
+    With both services running, open `http://127.0.0.1:5173` in your browser to use the full interface, or call the API directly with curl:
+
+    ```bash
+    curl -X POST http://127.0.0.1:8000/api/v1/triage \
+      -H "Content-Type: application/json" \
+      -d '{"text": "Hay agua en el pasillo.", "provider": "local"}'
+    ```
+
+    ```powershell
+    Invoke-RestMethod -Method Post `
+      -Uri http://127.0.0.1:8000/api/v1/triage `
+      -ContentType 'application/json' `
+      -Body '{"text": "Hay agua en el pasillo.", "provider": "local"}'
+    ```
+
+    A successful response returns a `TriageProposalResponse` with the following shape:
+
+    ```json
+    {
+      "notice_id": "a3f1c2d4-...",
+      "status": "pending_review",
+      "version": 0,
+      "category": "caidas_obstaculos",
+      "urgency": "media",
+      "summary": "Agua en pasillo representa riesgo de caída inminente.",
+      "department": "limpieza",
+      "justification": "Se detectó acumulación de agua en zona de tránsito...",
+      "metrics": {
+        "provider": "local",
+        "model": "llama3.2:3b",
+        "latency_seconds": 1.84,
+        "repair_attempts": 0,
+        "total_tokens": 312,
+        "cost_usd": 0,
+        "evidence": [...]
+      }
+    }
+    ```
+
+    Every new notice starts with `status: "pending_review"` and `version: 0`. A human review (approve, modify, or reject) is always required before the classification becomes final.
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+## One-Command Launch on Windows
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>
+On Windows you can skip the manual steps above and use the included PowerShell launcher, which creates `.env` and `.venv` if missing, synchronises dependencies, starts Ollama, pulls the configured model, and launches both FastAPI and React:
+
+```powershell
+.\start.ps1
+```
+
+Optional flags:
+
+| Flag | Effect |
+|---|---|
+| `-NoBrowser` | Skip automatically opening the browser |
+| `-SkipInstall` | Skip dependency sync (requires pre-installed envs) |
+
+Press `Ctrl+C` to stop only the processes the launcher started. Startup diagnostics are written to `data/local/*.log`.
+
+## Running Tests
+
+To run the full backend test suite (Ollama and Gemini are replaced by local doubles — no secrets needed):
+
+```powershell
+python -m pytest -q
+```
+
+```bash
+python -m pytest -q
+```
+
+To validate the frontend:
+
+```powershell
+cd frontend-react
+npm test
+npm run build
+```

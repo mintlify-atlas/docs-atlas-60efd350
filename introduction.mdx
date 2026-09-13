@@ -1,0 +1,94 @@
+---
+title: "IAviso Seguro: Workplace Hazard Triage with AI"
+sidebarTitle: "Introduction"
+description: "IAviso Seguro is an AI-assisted triage platform for workplace safety. Learn what it does, how it works, and when to use it."
+---
+
+IAviso Seguro is an AI-assisted triage platform designed to help safety professionals convert unstructured, free-text hazard reports into structured, prioritized proposals. A worker describes a dangerous situation in plain language; the system consults a reference risk matrix, assigns a category, urgency level, responsible department, and summary, then places that proposal in a queue for a qualified technician to approve, modify, or reject. Every classification is always a *proposal* — the final decision belongs to a human reviewer, not the model.
+
+<Note>
+  AI-generated proposals always require human review before any action is taken. IAviso Seguro never substitutes a professional safety assessment, a certified risk evaluation, or the emergency protocol of your facility.
+</Note>
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install dependencies, start the backend and React SPA, and submit your first triage request in under 10 minutes.
+  </Card>
+  <Card title="Triage Workflow" icon="arrows-spin" href="/concepts/triage-workflow">
+    Understand the full lifecycle of a hazard notice — from submission through human review to final classification.
+  </Card>
+  <Card title="Providers" icon="microchip" href="/concepts/providers">
+    Configure the local Ollama provider or the external Gemini adapter, and compare them head-to-head.
+  </Card>
+  <Card title="API Overview" icon="code" href="/api/overview">
+    Explore every endpoint — triage, notices, reviews, comparisons, evaluations, metrics, and catalogs.
+  </Card>
+</CardGroup>
+
+## Core Value Proposition
+
+Workplace hazard reports are unstructured by nature. Workers describe what they see in their own words: a wet floor, a frayed cable, a blocked exit. IAviso Seguro maps those descriptions onto a closed, auditable taxonomy using a local LLM tool-call pipeline and a curated risk matrix. The result is a draft proposal (`pending_review`) with a consistent category, urgency level, department assignment, and a ten-word summary — plus the documentary evidence that supported the suggestion. A safety technician then takes a single human decision: approve the proposal as-is, modify any field, or reject it entirely.
+
+This workflow ensures that:
+- **No AI output becomes operational** without an explicit human step.
+- **Every decision is versioned and auditable**, with a full timeline of the proposal, state transition, actor, and any corrections.
+- **Both LLM providers** (local and external) are interchangeable behind the same Pydantic contract, so you can compare their quality and cost on the same input.
+
+## Architecture
+
+IAviso Seguro is built as a cohesive prototype with clearly separated layers.
+
+| Layer | Technology |
+|---|---|
+| **Backend API** | Python · FastAPI · Pydantic v2 |
+| **Primary interface** | React · TypeScript · Vite (SPA) |
+| **Fallback interface** | Streamlit dashboard |
+| **Local LLM provider** | Ollama (tool-calling, e.g. `llama3.2:3b`) |
+| **External LLM provider** | Google Gemini via REST adapter |
+| **Persistence** | SQLite (`data/local/iaviso.db`) |
+| **CI** | GitHub Actions (backend pytest + frontend npm) |
+
+The React SPA communicates exclusively with the FastAPI REST API; it never calls the LLM providers directly. The Streamlit dashboard is preserved as an academic fallback and uses the same API. In Docker deployments, the React build artifacts are compiled at image-build time and served as static files by FastAPI itself, so only a single container process is needed.
+
+## Hazard Categories
+
+The system classifies every notice into exactly one of nine closed categories. These categories are published at runtime via `GET /api/v1/catalogs` and feed directly into the review drop-downs — the React client reflects the same values without silent normalization.
+
+| Code | Description |
+|---|---|
+| `riesgo_electrico` | Electrical hazard |
+| `caidas_obstaculos` | Falls and obstacles |
+| `incendio` | Fire risk |
+| `maquinaria` | Machinery hazard |
+| `sustancias_peligrosas` | Hazardous substances |
+| `problemas_estructurales` | Structural problems |
+| `falta_epi` | Missing personal protective equipment |
+| `ergonomia` | Ergonomic risk |
+| `otros` | Other / unclassified |
+
+Each category maps to one of four urgency levels — `baja`, `media`, `alta`, `critica` — and a responsible department: `prevencion`, `mantenimiento`, `seguridad`, or `limpieza`.
+
+## Two-Provider Design
+
+IAviso Seguro ships with two LLM adapters that share an identical tool contract, Pydantic schema, and validation pipeline:
+
+- **`local`** — calls an Ollama instance running on your machine or host network. No data leaves your infrastructure. Recommended for development and privacy-sensitive environments.
+- **`external`** — calls Google Gemini via the `EXTERNAL_API_BASE_URL` REST endpoint. Requires `EXTERNAL_API_KEY` in `.env`. Token costs are tracked per execution.
+
+The `POST /api/v1/comparisons` endpoint runs both providers concurrently on the same input and returns a stable `local` / `external` result pair, making it straightforward to benchmark quality, latency, repair rate, and cost side by side.
+
+## CI and Quality
+
+Every push and pull request triggers two independent GitHub Actions jobs:
+
+- **Backend** (Python 3.12): `python -m pytest -q` against the full test suite using local doubles for Ollama and Gemini — no secrets or downloaded models required.
+- **Frontend** (Node 22): `npm ci`, `npm test`, and `npm run build`.
+
+## Academic Status and Ethics
+
+IAviso Seguro is an **academic prototype**. All texts, matrices, and evaluation datasets included in the repository are synthetic and didactic. They are not normative and do not constitute certified safety guidance.
+
+- Urgency classifications are never influenced by irrelevant demographic attributes; the evaluation dataset includes pairs that vary only in age and preserve the expected label.
+- An AI result is always a pending proposal awaiting human validation — never an operational decision or an accredited preventive assessment.
+- In the event of immediate danger, the emergency protocol of your facility must be followed. This application does not replace that protocol.
+- Credentials, local databases, execution logs, and internal working documents in `docs/` are excluded from version control.

@@ -1,0 +1,141 @@
+---
+title: "POST /api/v1/triage — Submit a Hazard Notice for AI Triage"
+sidebarTitle: "POST /triage"
+description: "POST /api/v1/triage — submit a free-text hazard notice and receive a structured AI proposal. Specify provider as local (Ollama) or external (Gemini)."
+---
+
+The triage endpoint is the core of IAviso Seguro. It accepts a free-text description of a workplace hazard, routes it to the selected AI provider, and returns a structured classification proposal ready for human review. The proposal includes a category, urgency level, responsible department, a ten-word summary, and a justification — all drawn from the closed-domain catalogs enforced by Pydantic.
+
+The created proposal is persisted immediately with a status of `pending_review`. It will remain in that state until a reviewer submits a decision via the [reviews endpoint](/api/notices).
+
+## Endpoint
+
+```
+POST /api/v1/triage
+```
+
+## Request Body
+
+<ParamField body="text" type="string" required>
+  Free-text description of the hazard. Must be between **1 and 4000 characters** (whitespace stripped). This is the notice that will be analysed by the AI model.
+</ParamField>
+
+<ParamField body="provider" type="string" required>
+  Which AI provider to use for this triage run. Must be one of:
+  - `"local"` — Ollama (requires a running Ollama instance with the configured model installed)
+  - `"external"` — Gemini (requires `EXTERNAL_API_KEY` to be set server-side)
+</ParamField>
+
+<ParamField body="location" type="string">
+  Optional location context for the hazard (e.g. `"Planta baja"`, `"Almacén 3"`). Between **1 and 200 characters** when provided. Passed to the model as additional context but does not affect the classification contract.
+</ParamField>
+
+### Example Request Body
+
+```json
+{
+  "text": "Hay agua en el pasillo junto a la entrada principal.",
+  "provider": "local",
+  "location": "Planta baja"
+}
+```
+
+## Response
+
+On success the endpoint returns HTTP **200** with a `TriageProposalResponse` body. The proposal is always in `pending_review` status at creation time.
+
+<ResponseField name="notice_id" type="string (UUID)">
+  Stable identifier for the notice (the hazard report). A notice can accumulate multiple triage runs over its lifetime.
+</ResponseField>
+
+<ResponseField name="triage_run_id" type="string (UUID)">
+  Identifier for this specific triage execution. Used to look up audit events and review history.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Always `"pending_review"` at creation time. Changes to `approved`, `modified`, or `rejected` after a review is submitted.
+</ResponseField>
+
+<ResponseField name="version" type="integer">
+  Starts at `0` for a newly created proposal. Incremented on each review. Pass this value as `expected_version` when submitting a review to prevent conflicting concurrent updates.
+</ResponseField>
+
+<ResponseField name="provider" type="string">
+  The provider used for this run — `"local"` or `"external"`.
+</ResponseField>
+
+<ResponseField name="model" type="string | null">
+  The model name reported by the provider (e.g. `"llama3.2:3b"`, `"gemini-2.0-flash"`). May be `null` if the provider did not return model metadata.
+</ResponseField>
+
+<ResponseField name="created_at" type="string (datetime)">
+  ISO 8601 timestamp of when the proposal was persisted.
+</ResponseField>
+
+<ResponseField name="category" type="string">
+  AI-proposed hazard category. One of the nine canonical values: `riesgo_electrico`, `caidas_obstaculos`, `incendio`, `maquinaria`, `sustancias_peligrosas`, `problemas_estructurales`, `falta_epi`, `ergonomia`, `otros`.
+</ResponseField>
+
+<ResponseField name="urgency" type="string">
+  AI-proposed urgency level: `baja`, `media`, `alta`, or `critica`.
+</ResponseField>
+
+<ResponseField name="department" type="string">
+  AI-proposed responsible department: `prevencion`, `mantenimiento`, `seguridad`, or `limpieza`.
+</ResponseField>
+
+<ResponseField name="summary" type="string">
+  Exactly **10 words** summarising the hazard. This constraint is enforced by Pydantic validation — if the model returns a summary with a different word count the response is rejected and the endpoint returns a `502`.
+</ResponseField>
+
+<ResponseField name="justification" type="string">
+  Free-form explanation (1–2000 characters) of why the AI assigned the chosen category, urgency, and department.
+</ResponseField>
+
+<ResponseField name="metrics" type="ExecutionMetrics">
+  Telemetry recorded for this triage run.
+
+  <Expandable title="ExecutionMetrics fields">
+    <ResponseField name="provider" type="string">Provider that executed this run.</ResponseField>
+    <ResponseField name="model" type="string | null">Model identifier reported by the provider.</ResponseField>
+    <ResponseField name="parameters" type="object">LLM parameters used (e.g. `temperature`, `top_p`).</ResponseField>
+    <ResponseField name="started_at" type="string (datetime)">When the provider call was initiated.</ResponseField>
+    <ResponseField name="completed_at" type="string (datetime)">When the response was received and validated.</ResponseField>
+    <ResponseField name="latency_ms" type="number">Wall-clock latency in milliseconds from start to completion.</ResponseField>
+    <ResponseField name="provider_attempts" type="integer">Number of HTTP calls made to the provider (includes retries).</ResponseField>
+    <ResponseField name="repair_attempts" type="integer">Number of repair attempts made after an invalid response.</ResponseField>
+    <ResponseField name="input_tokens" type="integer | null">Input token count (null if not reported by the provider).</ResponseField>
+    <ResponseField name="output_tokens" type="integer | null">Output token count (null if not reported by the provider).</ResponseField>
+    <ResponseField name="total_tokens" type="integer | null">Total token count (null if not reported by the provider).</ResponseField>
+    <ResponseField name="success" type="boolean">Whether the triage run produced a valid result.</ResponseField>
+    <ResponseField name="json_valid" type="boolean | null">Whether the model output was valid JSON before any repair.</ResponseField>
+    <ResponseField name="error_type" type="string | null">Class name of the error if the run failed, otherwise null.</ResponseField>
+    <ResponseField name="api_cost" type="number | null">Estimated monetary cost of the API call (null for local models).</ResponseField>
+    <ResponseField name="api_cost_currency" type="string | null">ISO 4217 currency code for `api_cost` (e.g. `"USD"`).</ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Error Responses
+
+| Status | Error Code | Cause |
+|--------|------------|-------|
+| `429` | `provider_rate_limited` | The external provider has temporarily hit its rate limit. Check the `Retry-After` response header. |
+| `500` | `invalid_risk_matrix` | The risk matrix file is missing or failed schema validation at startup. |
+| `500` | `invalid_knowledge_base` | The prevention knowledge corpus is unavailable or invalid. |
+| `502` | `invalid_provider_output` | The provider returned a response that could not be parsed into a valid `TriageResult`. |
+| `502` | `invalid_tool_arguments` | The provider called the risk-matrix tool with an unrecognised category. |
+| `502` | `required_tool_not_executed` | The provider completed without consulting the required risk-matrix tool. |
+| `502` | `tool_step_limit_exceeded` | The provider exceeded the maximum number of tool-call steps. |
+| `503` | `provider_unavailable` | Ollama is not running, the model is not installed, or `EXTERNAL_API_KEY` is not set for Gemini. |
+
+## Example Request
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/triage \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Hay agua en el pasillo junto a la entrada principal.",
+    "provider": "local",
+    "location": "Planta baja"
+  }'
+```

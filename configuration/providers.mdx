@@ -1,0 +1,156 @@
+---
+title: "Configuring AI Providers in IAviso Seguro"
+sidebarTitle: "Providers"
+description: "Configure the local Ollama provider and the external Gemini provider, including model selection, sampling parameters, and resilience settings."
+---
+
+Every triage request carries an explicit `provider` field — either `"local"` or `"external"` — that determines which LLM handles that specific call. There are no implicit fallbacks: a request for the `external` provider will never be silently routed to `local`, and vice versa. This design makes every triage result fully traceable to the model and parameters that produced it.
+
+```json
+{
+  "text": "Hay agua en el pasillo.",
+  "provider": "local"
+}
+```
+
+Provider selection, model identity, sampling parameters, attempt count, repair count, token usage, latency, and cost are all recorded per-run in SQLite and exposed through `GET /api/v1/metrics/summary`.
+
+---
+
+## Provider Configuration
+
+<Tabs>
+  <Tab title="Local (Ollama)">
+
+    The local provider sends requests to a running [Ollama](https://ollama.com) server. The model must be downloaded locally and **must support tool calls** — IAviso Seguro uses a single structured tool call (`consultar_matriz_riesgos`) as part of the triage cycle and cannot proceed without it.
+
+    ### Prerequisites
+
+    <Steps>
+      <Step title="Install and start Ollama">
+        Download Ollama from [ollama.com](https://ollama.com) and either launch the desktop application or start the server manually:
+
+        ```powershell
+        # Only needed if Ollama is not already running as an application
+        ollama serve
+        ```
+      </Step>
+      <Step title="Pull a compatible model">
+        The verified working model is `llama3.2:3b`. It supports tool calls, fits in approximately 2 GB on disk, and was validated end-to-end against the full triage flow on 8 September 2026 with Ollama 0.33.3.
+
+        ```powershell
+        ollama pull llama3.2:3b
+        ```
+      </Step>
+      <Step title="Configure .env">
+        Set the model name and, if Ollama is not on its default port, the base URL:
+
+        ```ini
+        OLLAMA_BASE_URL=http://127.0.0.1:11434
+        LOCAL_MODEL=llama3.2:3b
+        OLLAMA_TEMPERATURE=0
+        OLLAMA_TOP_P=0.9
+        ```
+      </Step>
+    </Steps>
+
+    ### Environment Variables
+
+    | Variable | Default | Description |
+    |---|---|---|
+    | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Base URL of the Ollama server. Use `http://host.docker.internal:11434` when running inside Docker. |
+    | `LOCAL_MODEL` | _(none)_ | Name of the installed model. Must be set explicitly; the application has no built-in default. |
+    | `OLLAMA_TEMPERATURE` | `0` | Sampling temperature (`0`–`2`). |
+    | `OLLAMA_TOP_P` | `0.9` | Nucleus sampling probability mass (`0` exclusive–`1`). |
+
+    ### Ollama 0.33.3 Schema Compatibility
+
+    <Note>
+      Ollama 0.33.3 does not accept some length-restriction fields during grammar generation. To remain compatible, IAviso Seguro sends the LLM a Pydantic-derived schema with those constraints relaxed. The full Pydantic contract is then applied on the backend after the response is received. This means length validations are enforced — they simply happen server-side rather than inside Ollama's grammar engine.
+    </Note>
+
+    ### Health Check
+
+    `GET /health` verifies the local provider by calling Ollama's `/api/tags` endpoint. The model reports as available only if the exact model name set in `LOCAL_MODEL` appears in the tag list. The probe runs concurrently with the Gemini probe and is subject to `HEALTH_CHECK_TIMEOUT_SECONDS`.
+
+  </Tab>
+  <Tab title="External (Gemini)">
+
+    The external provider sends requests to the Gemini REST API. An API key is required; without one the system returns HTTP **503** immediately, without attempting any network connection.
+
+    ### Prerequisites
+
+    <Steps>
+      <Step title="Obtain a Gemini API key">
+        Create a key at [aistudio.google.com](https://aistudio.google.com). The key must have permission to call the model specified in `EXTERNAL_MODEL`.
+      </Step>
+      <Step title="Configure .env">
+        Add the key and confirm the model and base URL:
+
+        ```ini
+        EXTERNAL_API_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+        EXTERNAL_API_KEY=your-key-here
+        EXTERNAL_MODEL=gemini-3.5-flash-lite
+        EXTERNAL_TEMPERATURE=0
+        EXTERNAL_TOP_P=0.9
+        ```
+      </Step>
+    </Steps>
+
+    <Warning>
+      `EXTERNAL_API_KEY` is a secret. Never commit it to version control. If the key is absent or empty, every request with `provider=external` returns HTTP **503** — the application will not fall back to the local provider.
+    </Warning>
+
+    ### Environment Variables
+
+    | Variable | Default | Description |
+    |---|---|---|
+    | `EXTERNAL_API_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta` | Gemini REST API base URL. Override only for proxy or regional routing. |
+    | `EXTERNAL_API_KEY` | _(empty)_ | Secret API key. Required for any `provider=external` request. |
+    | `EXTERNAL_MODEL` | `gemini-3.5-flash-lite` | Gemini model identifier. Cost estimates are skipped if this does not exactly match `EXTERNAL_PRICE_MODEL`. |
+    | `EXTERNAL_TEMPERATURE` | `0` | Sampling temperature (`0`–`2`). |
+    | `EXTERNAL_TOP_P` | `0.9` | Nucleus sampling probability mass (`0` exclusive–`1`). |
+
+    ### Retry Behaviour
+
+    The external provider uses exponential back-off for transport errors, HTTP 429 (rate-limit), and other transient HTTP failures. The retry window is configured with three variables:
+
+    | Variable | Default | Constraint |
+    |---|---|---|
+    | `LLM_MAX_RETRIES` | `2` | `0`–`5` |
+    | `LLM_RETRY_BASE_SECONDS` | `0.5` | `0`–`60`; must be ≤ `LLM_RETRY_MAX_SECONDS` |
+    | `LLM_RETRY_MAX_SECONDS` | `8` | `0`–`300`; must be ≥ `LLM_RETRY_BASE_SECONDS` |
+
+    The application will refuse to start if `LLM_RETRY_BASE_SECONDS` exceeds `LLM_RETRY_MAX_SECONDS`.
+
+    ### Health Check
+
+    When `EXTERNAL_API_KEY` is set, `GET /health` queries Gemini model metadata to confirm reachability. When the key is absent, Gemini is reported as unavailable in the health body without affecting the HTTP status code of the health endpoint.
+
+  </Tab>
+</Tabs>
+
+---
+
+## Retries vs. Repairs
+
+These two resilience mechanisms operate at different points in the triage lifecycle and are configured independently.
+
+<CardGroup cols={2}>
+  <Card title="Retries" icon="rotate-right">
+    Handle failures that occur **before** the LLM produces a response — network timeouts, connection errors, HTTP 429, and other transient HTTP errors. Governed by `LLM_MAX_RETRIES`, `LLM_RETRY_BASE_SECONDS`, and `LLM_RETRY_MAX_SECONDS`. Apply to the external provider; transport errors on the local provider are also subject to `LLM_TIMEOUT_SECONDS`.
+  </Card>
+  <Card title="Repairs" icon="wrench">
+    Handle failures that occur **after** the LLM responds — specifically, when the response cannot be parsed into the required Pydantic schema. The system re-prompts the LLM with the validation error up to `LLM_REPAIR_ATTEMPTS` times (range `0`–`3`, default `1`). Each repair attempt is recorded in per-run telemetry. Repairs apply to both providers equally.
+  </Card>
+</CardGroup>
+
+The number of repairs consumed is stored alongside each triage run and surfaced in `GET /api/v1/metrics/summary`. A run that exhausted all repair attempts without producing a valid response is counted as a failure and returns a stable error body.
+
+---
+
+## Mock Provider (Tests)
+
+<Note>
+  The test suite replaces both Ollama and Gemini with local doubles. Tests do not require a running Ollama server, a downloaded model, an `EXTERNAL_API_KEY`, or any network access. GitHub Actions CI therefore runs with no secrets and no provider dependencies. The mock provider honours the same tool-call contract as the real providers, so integration tests exercise the full triage pipeline including matrix lookup, RAG retrieval, Pydantic validation, and repair logic.
+</Note>

@@ -1,0 +1,81 @@
+---
+title: "GET /api/v1/catalogs — Fetch Closed-Domain Value Lists"
+sidebarTitle: "GET /catalogs"
+description: "GET /api/v1/catalogs returns the canonical categories, urgency levels, and departments accepted by the triage and review endpoints."
+---
+
+The catalogs endpoint publishes the exact Pydantic-validated string values accepted by every other endpoint in the API. Frontend dropdowns and API clients should always source their option lists from this endpoint rather than hard-coding values, ensuring they stay in sync with the backend contract without requiring a code change when catalogs evolve.
+
+## Endpoint
+
+```
+GET /api/v1/catalogs
+```
+
+## Parameters
+
+This endpoint accepts no query parameters, path parameters, or request body.
+
+## Response — `CatalogsResponse`
+
+<ResponseField name="categories" type="array of string">
+  All valid hazard categories. These are the only values accepted for the `category` field in triage requests and review corrections.
+</ResponseField>
+
+<ResponseField name="urgencies" type="array of string">
+  All valid urgency levels, ordered from lowest to highest: `baja` → `media` → `alta` → `critica`.
+</ResponseField>
+
+<ResponseField name="departments" type="array of string">
+  All valid responsible departments.
+</ResponseField>
+
+### Full Response Example
+
+```json
+{
+  "categories": [
+    "riesgo_electrico",
+    "caidas_obstaculos",
+    "incendio",
+    "maquinaria",
+    "sustancias_peligrosas",
+    "problemas_estructurales",
+    "falta_epi",
+    "ergonomia",
+    "otros"
+  ],
+  "urgencies": [
+    "baja",
+    "media",
+    "alta",
+    "critica"
+  ],
+  "departments": [
+    "prevencion",
+    "mantenimiento",
+    "seguridad",
+    "limpieza"
+  ]
+}
+```
+
+### Category Reference
+
+| Value | Description |
+|-------|-------------|
+| `riesgo_electrico` | Electrical hazard |
+| `caidas_obstaculos` | Falls and obstacles |
+| `incendio` | Fire risk |
+| `maquinaria` | Machinery hazard |
+| `sustancias_peligrosas` | Hazardous substances |
+| `problemas_estructurales` | Structural problems |
+| `falta_epi` | Missing personal protective equipment |
+| `ergonomia` | Ergonomics issue |
+| `otros` | Other / uncategorised |
+
+## Example Request
+
+```bash
+curl http://127.0.0.1:8000/api/v1/catalogs
+```

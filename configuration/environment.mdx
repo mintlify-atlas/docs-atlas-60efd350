@@ -1,0 +1,180 @@
+---
+title: "Environment Variables Reference for IAviso Seguro"
+sidebarTitle: "Environment"
+description: "Complete reference for all IAviso Seguro environment variables — database path, knowledge base, LLM settings, health checks, and pricing."
+---
+
+IAviso Seguro reads all runtime configuration from a `.env` file in the project root. To get started, copy the provided template and fill in any values specific to your setup — you should never need to change the application source to reconfigure the system.
+
+```powershell
+Copy-Item .env.example .env
+```
+
+The `.env` file is loaded by `pydantic-settings` at startup via `SettingsConfigDict(env_file=".env")`. Unknown keys are silently ignored (`extra="ignore"`), and every value is validated against its declared type and range constraints before the application accepts any requests. If a value fails validation, the process exits immediately with a clear error message.
+
+<Warning>
+  `EXTERNAL_API_KEY` is a secret credential. Never commit it to version control, include it in Docker image layers, or log it. Store it only in your local `.env` file, a secrets manager, or an encrypted CI/CD secret. The value is handled as `SecretStr` internally and will not appear in tracebacks or serialized settings dumps.
+</Warning>
+
+---
+
+## Application
+
+<ParamField body="APP_ENV" type="string" default="development">
+  Runtime environment label. Used for informational purposes. Example value: `development`.
+</ParamField>
+
+<ParamField body="DATABASE_PATH" type="path" default="data/local/iaviso.db">
+  File-system path to the SQLite database. The directory must exist and be writable. When running with Docker, this path should resolve inside a volume-mounted directory (see [Persistence](/configuration/persistence)).
+</ParamField>
+
+<ParamField body="KNOWLEDGE_BASE_PATH" type="path" default="data/knowledge/prevention_docs.v1.json">
+  File-system path to the versioned local prevention corpus used for RAG retrieval. The file must exist and satisfy the corpus contract; if it is missing or malformed the API returns `invalid_knowledge_base` (HTTP 500) and triage does not proceed.
+</ParamField>
+
+<ParamField body="RAG_MAX_SOURCES" type="integer" default="2">
+  Number of document fragments retrieved from the knowledge base per triage run. Accepted range: `1`–`5`. Increasing this value sends more context to the LLM and may improve coverage at the cost of a larger prompt.
+</ParamField>
+
+<ParamField body="LLM_REPAIR_ATTEMPTS" type="integer" default="1">
+  Maximum number of times the system will re-prompt the LLM to produce a Pydantic-valid response after a validation failure. Accepted range: `0`–`3`. Setting this to `0` disables repairs entirely; any invalid LLM output will immediately result in an error response.
+</ParamField>
+
+---
+
+## Local Provider (Ollama)
+
+<ParamField body="OLLAMA_BASE_URL" type="url" default="http://127.0.0.1:11434">
+  Base URL of the running Ollama server. Must be reachable from the process (or container) at request time. When running inside Docker, use `http://host.docker.internal:11434` to reach Ollama on the host.
+</ParamField>
+
+<ParamField body="LOCAL_MODEL" type="string">
+  Name of the Ollama model to use for triage. The model must be downloaded and must support tool calls. There is no default in the application code — the variable must be set. Example: `llama3.2:3b` (the verified working model).
+</ParamField>
+
+<ParamField body="OLLAMA_TEMPERATURE" type="float" default="0">
+  Sampling temperature for the local model. Accepted range: `0`–`2`. Lower values produce more deterministic output; the default of `0` is recommended for structured classification tasks.
+</ParamField>
+
+<ParamField body="OLLAMA_TOP_P" type="float" default="0.9">
+  Nucleus sampling probability mass for the local model. Accepted range: `0` (exclusive)–`1`. Works in conjunction with `OLLAMA_TEMPERATURE`.
+</ParamField>
+
+---
+
+## External Provider (Gemini)
+
+<ParamField body="EXTERNAL_API_BASE_URL" type="url" default="https://generativelanguage.googleapis.com/v1beta">
+  Base URL for the Gemini REST API. Override only if you are routing through a proxy or a different regional endpoint.
+</ParamField>
+
+<ParamField body="EXTERNAL_API_KEY" type="string" required>
+  API key for the Gemini provider. Required whenever a triage request is submitted with `provider=external`. If this value is empty, the API immediately returns HTTP **503** without attempting any connection to Gemini.
+</ParamField>
+
+<ParamField body="EXTERNAL_MODEL" type="string" default="gemini-3.5-flash-lite">
+  Gemini model identifier to use for triage. The pricing reference variables below are keyed to this value; cost calculations are skipped if the model in use does not exactly match `EXTERNAL_PRICE_MODEL`.
+</ParamField>
+
+<ParamField body="EXTERNAL_TEMPERATURE" type="float" default="0">
+  Sampling temperature for the external model. Accepted range: `0`–`2`.
+</ParamField>
+
+<ParamField body="EXTERNAL_TOP_P" type="float" default="0.9">
+  Nucleus sampling probability mass for the external model. Accepted range: `0` (exclusive)–`1`.
+</ParamField>
+
+---
+
+## LLM Resilience
+
+<ParamField body="LLM_TIMEOUT_SECONDS" type="float" default="30">
+  Maximum wall-clock time (in seconds) allowed for a single LLM call. Accepted range: greater than `0`, up to `300`. Requests that exceed this limit are cancelled and counted as failures.
+</ParamField>
+
+<ParamField body="LLM_MAX_RETRIES" type="integer" default="2">
+  Maximum number of retry attempts for transport errors, HTTP 429 (rate-limit), and other transient HTTP failures. Accepted range: `0`–`5`. These retries happen before the LLM produces a response and are distinct from Pydantic repair attempts (see `LLM_REPAIR_ATTEMPTS`).
+</ParamField>
+
+<ParamField body="LLM_RETRY_BASE_SECONDS" type="float" default="0.5">
+  Initial wait time (in seconds) for the exponential back-off applied between retries. Accepted range: `0`–`60`. Must not exceed `LLM_RETRY_MAX_SECONDS`; the application will fail to start if it does.
+</ParamField>
+
+<ParamField body="LLM_RETRY_MAX_SECONDS" type="float" default="8">
+  Maximum wait time (in seconds) that the exponential back-off will grow to between retries. Accepted range: `0`–`300`. Must be greater than or equal to `LLM_RETRY_BASE_SECONDS`.
+</ParamField>
+
+---
+
+## Health Check
+
+<ParamField body="HEALTH_CHECK_TIMEOUT_SECONDS" type="float" default="2">
+  Per-dependency timeout (in seconds) used by `GET /health`. Ollama and Gemini probes run concurrently and each is cancelled after this limit. Accepted range: greater than `0`, up to `10`. A dependency that times out or fails is reported in the health body without converting the overall response to an HTTP error.
+</ParamField>
+
+---
+
+## External Pricing Reference
+
+These variables describe the current billing rates for the Gemini model and are used to calculate per-request cost estimates. They are informational — cost is computed only when the model in use exactly matches `EXTERNAL_PRICE_MODEL`, and it is stored as `null` when the tariff does not apply.
+
+<ParamField body="EXTERNAL_PRICE_MODEL" type="string" default="gemini-3.5-flash-lite">
+  Model name to which the pricing below applies.
+</ParamField>
+
+<ParamField body="EXTERNAL_INPUT_PRICE_PER_MILLION" type="decimal" default="0.30">
+  Cost in `EXTERNAL_PRICE_CURRENCY` per one million input tokens billed by the provider.
+</ParamField>
+
+<ParamField body="EXTERNAL_OUTPUT_PRICE_PER_MILLION" type="decimal" default="2.50">
+  Cost in `EXTERNAL_PRICE_CURRENCY` per one million output tokens billed by the provider.
+</ParamField>
+
+<ParamField body="EXTERNAL_PRICE_CURRENCY" type="string" default="USD">
+  ISO 4217 currency code for the pricing figures above.
+</ParamField>
+
+<ParamField body="EXTERNAL_PRICE_SOURCE" type="url" default="https://ai.google.dev/gemini-api/docs/pricing">
+  URL where the pricing figures were obtained. Update this when you revise the tariff values.
+</ParamField>
+
+<ParamField body="EXTERNAL_PRICE_CHECKED_ON" type="date" default="2026-09-10">
+  Date on which the pricing figures were last verified. Used for auditing; does not affect runtime behaviour.
+</ParamField>
+
+---
+
+## .env.example
+
+The file below is the authoritative template shipped with the repository. Copy it to `.env` before starting the application.
+
+```ini
+# Configuración de ejemplo; copiar a .env y no publicar credenciales.
+APP_ENV=development
+API_BASE_URL=http://127.0.0.1:8000
+DATABASE_PATH=data/local/iaviso.db
+KNOWLEDGE_BASE_PATH=data/knowledge/prevention_docs.v1.json
+RAG_MAX_SOURCES=2
+LLM_PROVIDER=local
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+LOCAL_MODEL=llama3.2:3b
+OLLAMA_TEMPERATURE=0
+OLLAMA_TOP_P=0.9
+EXTERNAL_API_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+EXTERNAL_API_KEY=
+EXTERNAL_MODEL=gemini-3.5-flash-lite
+EXTERNAL_TEMPERATURE=0
+EXTERNAL_TOP_P=0.9
+EXTERNAL_PRICE_MODEL=gemini-3.5-flash-lite
+EXTERNAL_INPUT_PRICE_PER_MILLION=0.30
+EXTERNAL_OUTPUT_PRICE_PER_MILLION=2.50
+EXTERNAL_PRICE_CURRENCY=USD
+EXTERNAL_PRICE_SOURCE=https://ai.google.dev/gemini-api/docs/pricing
+EXTERNAL_PRICE_CHECKED_ON=2026-09-10
+LLM_TIMEOUT_SECONDS=30
+HEALTH_CHECK_TIMEOUT_SECONDS=2
+LLM_MAX_RETRIES=2
+LLM_RETRY_BASE_SECONDS=0.5
+LLM_RETRY_MAX_SECONDS=8
+LLM_REPAIR_ATTEMPTS=1
+```

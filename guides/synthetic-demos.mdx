@@ -1,0 +1,139 @@
+---
+title: "Running the Built-In Synthetic Demo Scenarios"
+sidebarTitle: "Synthetic Demos"
+description: "Run three scripted demo scenarios against the local API — triage creation, JSON repair, and rate-limit recovery — without real providers or credentials."
+---
+
+The demo script at `scripts/run_demos.py` runs three scripted scenarios directly against the IAviso Seguro API using mock providers, a temporary in-memory SQLite database, and FastAPI's built-in `TestClient`. You do not need Ollama installed, a Gemini API key, or any real hazard data. The demos are useful for integration testing, CI pipelines, and demonstrating specific resilience behaviours — such as JSON repair and rate-limit recovery — in a fully controlled environment.
+
+Each scenario prints a JSON result to stdout so the output is scriptable and easy to parse or log.
+
+## The three scenarios
+
+<AccordionGroup>
+
+<Accordion title="main — create, query, and approve a notice">
+  The `main` scenario exercises the complete happy-path workflow through the public API endpoints:
+
+  1. **Creates** a triage proposal by posting to `POST /api/v1/triage` with synthetic text and a mock local provider.
+  2. **Queries** the notices inbox via `GET /api/v1/notices` and confirms the new notice appears.
+  3. **Submits** a human review via `POST /api/v1/notices/{notice_id}/reviews` with `decision: approved`.
+
+  The returned JSON confirms the created status, the number of notices in the inbox, the post-review status, and a `human_validation_required: true` flag.
+
+  ```json
+  {
+    "scenario": "main",
+    "created_status": "pending_review",
+    "listed_notices": 1,
+    "reviewed_status": "approved",
+    "proposal_preserved": true,
+    "human_validation_required": true
+  }
+  ```
+</Accordion>
+
+<Accordion title="repair — invalid JSON output and single repair cycle">
+  The `repair` scenario demonstrates what happens when an LLM returns malformed JSON. It wires a `_SequenceProvider` that deliberately returns `"{"` (a truncated, invalid JSON string) on the first generation call, then returns a valid `TriageResult` on the repair call.
+
+  The triage service detects the invalid output, triggers one repair cycle, and produces a successful result. The returned JSON shows the attempt counts and confirms the repair worked:
+
+  ```json
+  {
+    "scenario": "repair",
+    "success": true,
+    "provider_attempts": 1,
+    "repair_attempts": 1,
+    "json_valid": true,
+    "final_category": "riesgo_electrico"
+  }
+  ```
+
+  This scenario illustrates that `repair_attempts` and `provider_attempts` are tracked independently, and that a single repair is enough to recover from a single malformed output.
+</Accordion>
+
+<Accordion title="rate-limit — 429 recovery with Retry-After">
+  The `rate-limit` scenario uses an `httpx.MockTransport` to intercept HTTP calls to the Gemini adapter. The first call returns `HTTP 429` with a `Retry-After: 2` header. The second call returns a valid tool-call response.
+
+  The provider reads the `Retry-After` header, records the requested backoff duration, and retries without making any real network connection or sleeping in wall-clock time (the `sleep` function is replaced with a list append so tests stay fast).
+
+  ```json
+  {
+    "scenario": "rate-limit",
+    "recovered": true,
+    "provider_attempts": 2,
+    "backoff_seconds": [2],
+    "retry_after_respected": true
+  }
+  ```
+
+  `retry_after_respected: true` confirms the provider used the value from the `Retry-After` header (2 seconds) rather than its default exponential backoff interval.
+</Accordion>
+
+</AccordionGroup>
+
+## Running the demos
+
+<Steps>
+
+### Start the API
+
+The demo script uses FastAPI's `TestClient` internally and overrides dependencies, so it does **not** require the uvicorn server to already be running. However, if you want to verify the demos against a live server, start it first:
+
+```powershell
+python -m uvicorn backend.app.main:app --reload
+```
+
+### Run a specific scenario
+
+```powershell
+python -m scripts.run_demos --scenario main
+python -m scripts.run_demos --scenario repair
+python -m scripts.run_demos --scenario rate-limit
+```
+
+### Run all three scenarios at once
+
+```powershell
+python -m scripts.run_demos --scenario all
+```
+
+When `--scenario all` is used, the script runs `main`, `repair`, and `rate-limit` in sequence and returns a JSON array with one result object per scenario.
+
+### Inspect the output
+
+Each scenario returns a JSON object on stdout. Pipe it through `python3 -m json.tool` for pretty-printing:
+
+```powershell
+python -m scripts.run_demos --scenario repair | python -m json.tool
+```
+
+</Steps>
+
+## Prerequisites
+
+| Requirement        | Details                                                                    |
+|--------------------|----------------------------------------------------------------------------|
+| Python 3.11+       | Same version constraint as the rest of the project                        |
+| Dependencies       | Install from `requirements-dev.txt` or `requirements-lock.txt`            |
+| Ollama             | **Not required** — demos use `MockTriageProvider`                         |
+| Gemini API key     | **Not required** — the `rate-limit` scenario uses `httpx.MockTransport`   |
+| Database           | Each demo run uses a `TemporaryDirectory`; no persistent state is created |
+
+<Tip>
+  The demos use the same `MockTriageProvider` that backs the automated test suite in `tests/`. No model download is required — the mock returns a pre-defined synthetic `TriageResult` immediately, which means demos run in milliseconds regardless of your hardware.
+</Tip>
+
+## Argument reference
+
+```powershell
+python -m scripts.run_demos --help
+```
+
+| Argument     | Choices                             | Default |
+|--------------|-------------------------------------|---------|
+| `--scenario` | `all`, `main`, `repair`, `rate-limit` | `all`   |
+
+<Note>
+  All demo scenarios operate exclusively on synthetic data generated in a temporary directory. They do not write to the operational SQLite database, do not create real safety records, and do not transmit any data to external services. The output is suitable for logging and CI artefacts.
+</Note>

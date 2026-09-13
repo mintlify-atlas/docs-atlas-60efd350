@@ -1,0 +1,130 @@
+---
+title: "AI Providers: Ollama and Gemini in IAviso Seguro"
+sidebarTitle: "Providers"
+description: "IAviso Seguro supports a local Ollama provider and an external Gemini provider. Each request specifies its provider explicitly — no silent fallbacks."
+---
+
+IAviso Seguro integrates two separate AI providers behind a common `TriageProvider` protocol. The local provider talks to an Ollama instance running on the same machine; the external provider calls the Gemini REST API. Both providers accept the same triage request, execute the same tool call contract, and return output validated against the same Pydantic `TriageResult` schema. The caller chooses the provider explicitly on every request — the system has no default and no silent rerouting.
+
+## Provider Type
+
+The provider constraint is enforced at the schema level:
+
+```python
+Provider = Literal["local", "external"]
+```
+
+Any request body with a `provider` value outside this set is rejected by Pydantic before it reaches the service. There is no third value, no `auto` mode, and no fallback chain.
+
+## Configuring Each Provider
+
+<Tabs>
+  <Tab title="Local (Ollama)">
+    The local provider (`OllamaTriageProvider`) sends requests to the Ollama `/api/chat` endpoint without streaming. It requires a locally installed model that supports tool calls.
+
+    **Required environment variables**
+
+    | Variable | Description |
+    |---|---|
+    | `LOCAL_MODEL` | Name of the Ollama model to use, e.g. `llama3.2:3b` |
+    | `OLLAMA_BASE_URL` | Base URL of the Ollama server (default: `http://localhost:11434`) |
+    | `LLM_TIMEOUT_SECONDS` | Maximum time in seconds for each call |
+    | `OLLAMA_TEMPERATURE` | Sampling temperature, validated as `0 ≤ value ≤ 2` |
+    | `OLLAMA_TOP_P` | Nucleus sampling, validated as `0 < value ≤ 1` |
+
+    No API key is needed. Ollama must be running and the configured model must be pulled before starting the API:
+
+    ```bash
+    ollama pull llama3.2:3b
+    ollama serve
+    ```
+
+    The model must support tool calls. At the time of the verified manual test (Ollama 0.33.3 with `llama3.2:3b`), the model responded correctly to the `consultar_matriz_riesgos` tool call. Because Ollama 0.33.3 does not accept some length constraints when generating its grammar, the provider sends a Pydantic-derived compatible schema and the service applies the full contract afterwards.
+
+    If the model is not installed or Ollama is not reachable, the `/health` endpoint reports Ollama as unavailable — but the API itself stays healthy and continues serving requests for the external provider.
+  </Tab>
+
+  <Tab title="External (Gemini)">
+    The external provider (`GeminiTriageProvider`) calls the Gemini `generateContent` REST endpoint. It implements exponential-backoff retries for transient failures.
+
+    **Required environment variables**
+
+    | Variable | Description |
+    |---|---|
+    | `EXTERNAL_API_KEY` | **Required.** Google API key for Gemini. |
+    | `EXTERNAL_MODEL` | Model name; defaults to `gemini-3.5-flash-lite` |
+    | `EXTERNAL_API_BASE_URL` | Base URL for the Gemini REST API |
+    | `EXTERNAL_TEMPERATURE` | Sampling temperature, validated as `0 ≤ value ≤ 2` |
+    | `EXTERNAL_TOP_P` | Nucleus sampling, validated as `0 < value ≤ 1` |
+    | `LLM_MAX_RETRIES` | Maximum transport/rate-limit retries (0–5) |
+    | `LLM_RETRY_BASE_SECONDS` | Base delay for exponential backoff (0–60 s) |
+    | `LLM_RETRY_MAX_SECONDS` | Maximum retry delay cap (0–300 s) |
+
+    The key is checked **before the first HTTP call**. If `EXTERNAL_API_KEY` is empty or missing, `GeminiTriageProvider.generate()` raises `ProviderConnectionError` immediately and the API returns `503` — no connection attempt is made.
+
+    Pricing data can be versioned via `EXTERNAL_PRICE_MODEL`, `EXTERNAL_PRICE_INPUT_PER_MILLION`, `EXTERNAL_PRICE_OUTPUT_PER_MILLION`, `EXTERNAL_PRICE_CURRENCY`, and related variables. Cost is only calculated when the configured model name exactly matches the model used.
+  </Tab>
+</Tabs>
+
+## Specifying a Provider in a Request
+
+Every triage request requires an explicit `provider` field:
+
+```json
+{ "text": "Hay agua en el pasillo.", "provider": "local" }
+```
+
+```json
+{ "text": "Hay agua en el pasillo.", "provider": "external" }
+```
+
+Both requests go through the same `TriageService` and the same Pydantic contract. The only difference is which HTTP adapter is called and which environment variables are read.
+
+<Warning>
+  If `EXTERNAL_API_KEY` is missing or blank, any request with `"provider": "external"` returns **503 Service Unavailable**. The notice is never silently rerouted to the local provider. Fix the missing key and resubmit the request explicitly.
+</Warning>
+
+## Retry Behavior (Gemini)
+
+The Gemini provider implements per-attempt retries for transient failures. Retries are separate from Pydantic repair attempts.
+
+**Retried conditions**
+
+- HTTP `429` (rate limit) — delay respects the `Retry-After` response header when present
+- HTTP `408`, `500`, `502`, `503`, `504` (transient server errors)
+- Transport exceptions (`httpx.TimeoutException`, `httpx.RequestError`)
+
+**Retry configuration**
+
+```
+LLM_MAX_RETRIES          # 0–5 retries; 0 = no retries
+LLM_RETRY_BASE_SECONDS   # Starting delay (exponential: base * 2^attempt)
+LLM_RETRY_MAX_SECONDS    # Hard cap on any single retry delay
+```
+
+The delay for attempt `n` (0-indexed) is:
+
+```
+delay = min(retry_base_seconds * 2^n, retry_max_seconds)
+```
+
+When `Retry-After` is present on a 429 response, the larger of the exponential delay and the server-requested delay is used, still capped at `retry_max_seconds`.
+
+## Repair Attempts (Both Providers)
+
+After a successful HTTP response, if the LLM output fails `TriageResult` Pydantic validation, the service may request a **repair** — a follow-up call to the same provider with the validation errors attached. Repairs are counted in `ExecutionMetrics.repair_attempts`.
+
+```
+LLM_REPAIR_ATTEMPTS   # 0–3; controls max repairs per triage run
+```
+
+Repairs are **independent of retries**: retries handle transport and rate-limit failures; repairs handle invalid JSON structure or contract violations such as the wrong word count in `summary`.
+
+| Mechanism | Trigger | Configuration |
+|---|---|---|
+| Retries | HTTP 429 / transient errors | `LLM_MAX_RETRIES`, `LLM_RETRY_BASE_SECONDS`, `LLM_RETRY_MAX_SECONDS` |
+| Repairs | Pydantic validation failure | `LLM_REPAIR_ATTEMPTS` (0–3) |
+
+## Mock Provider (CI/Tests)
+
+The test suite replaces both providers with a local mock that implements the same `TriageProvider` protocol. CI runs pass without any Ollama installation, downloaded model, or `EXTERNAL_API_KEY`. The mock is injected via the same `TriageService` constructor, so tests exercise the full orchestration, tool-call enforcement, and repair logic without external dependencies.

@@ -1,0 +1,127 @@
+---
+title: "POST /api/v1/evaluations — Run the Synthetic Benchmark"
+sidebarTitle: "POST /evaluations"
+description: "POST /api/v1/evaluations runs 14 labelled synthetic cases through both providers. Returns per-provider accuracy, latency, and cost. Does not create notices."
+---
+
+The evaluations endpoint runs a fixed, version-controlled set of synthetic hazard cases through both providers and returns a structured accuracy and performance report. It is designed for reproducible benchmarking: every call uses the same dataset (`data/evaluation/avisos.v1.json`), so results across runs are directly comparable. Each case carries an expected `category`, `urgency`, and `department` label; the endpoint measures how well each provider matches those labels.
+
+<Warning>
+  This endpoint does **not** create notices in the main triage workflow and does not record any accepted classifications. Results are purely for evaluation and should not be used as operational decisions.
+</Warning>
+
+## Endpoint
+
+```
+POST /api/v1/evaluations
+```
+
+## Request Body
+
+This endpoint accepts no request body.
+
+## Benchmark Dataset
+
+The synthetic dataset is loaded from `data/evaluation/avisos.v1.json`, versioned alongside the backend code. Each case includes a hazard text, an optional location, expected labels for category / urgency / department, and optional metadata for bias-pair analysis.
+
+## Response — `EvaluationReport`
+
+<ResponseField name="dataset_version" type="string">
+  Version string of the benchmark dataset that was used (e.g. `"1.0.0"`).
+</ResponseField>
+
+<ResponseField name="generated_at" type="string (datetime)">
+  ISO 8601 timestamp of when this evaluation run completed.
+</ResponseField>
+
+<ResponseField name="disclaimer" type="string">
+  Non-normative disclaimer inherited from the dataset, reminding consumers that results are synthetic and for research purposes only.
+</ResponseField>
+
+<ResponseField name="summaries" type="array of ProviderEvaluationSummary">
+  One summary per provider. Contains accuracy, latency, and cost metrics.
+
+  <Expandable title="ProviderEvaluationSummary fields">
+    <ResponseField name="provider" type="string">
+      `"local"` (Ollama) or `"external"` (Gemini).
+    </ResponseField>
+    <ResponseField name="cases" type="integer">
+      Number of synthetic cases that were executed for this provider.
+    </ResponseField>
+    <ResponseField name="category_accuracy" type="number | null">
+      Proportion of cases where the predicted category matched the expected label (0–1). `null` if no cases were executed.
+    </ResponseField>
+    <ResponseField name="urgency_accuracy" type="number | null">
+      Proportion of cases where the predicted urgency matched the expected label (0–1). `null` if no cases were executed.
+    </ResponseField>
+    <ResponseField name="department_accuracy" type="number | null">
+      Proportion of cases where the predicted department matched the expected label (0–1). `null` if no cases were executed.
+    </ResponseField>
+    <ResponseField name="json_valid_rate" type="number | null">
+      Proportion of responses that were valid JSON before any repair attempt (0–1). `null` if no observations.
+    </ResponseField>
+    <ResponseField name="mean_latency_ms" type="number | null">
+      Mean wall-clock latency in milliseconds across all cases. `null` if no observations.
+    </ResponseField>
+    <ResponseField name="mean_api_cost" type="number | null">
+      Mean estimated API cost per case. `null` for local models or if no cost data was recorded.
+    </ResponseField>
+    <ResponseField name="api_cost_currency" type="string | null">
+      ISO 4217 currency code for `mean_api_cost` (e.g. `"USD"`). `null` if no cost data.
+    </ResponseField>
+    <ResponseField name="reviewed_notices" type="integer">
+      Number of evaluation observations that also have a human review decision attached.
+    </ResponseField>
+    <ResponseField name="human_correction_rate" type="number | null">
+      Proportion of reviewed cases where a human modified or rejected the AI output (0–1). `null` if `reviewed_notices` is 0.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<Note>
+  All rate and accuracy fields with no observations return `null` — they are never coerced to `0`. A `null` value means there is genuinely no data to report, while `0.0` would imply that all observations failed, which is a different signal.
+</Note>
+
+## Example Request
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/evaluations
+```
+
+### Example Response (abbreviated)
+
+```json
+{
+  "dataset_version": "1.0.0",
+  "generated_at": "2025-01-15T10:32:00.000000Z",
+  "disclaimer": "Dataset sintético para evaluación académica. No es normativo.",
+  "summaries": [
+    {
+      "provider": "local",
+      "cases": 14,
+      "category_accuracy": 0.857,
+      "urgency_accuracy": 0.786,
+      "department_accuracy": 0.929,
+      "json_valid_rate": 1.0,
+      "mean_latency_ms": 4231.5,
+      "mean_api_cost": null,
+      "api_cost_currency": null,
+      "reviewed_notices": 0,
+      "human_correction_rate": null
+    },
+    {
+      "provider": "external",
+      "cases": 14,
+      "category_accuracy": 0.929,
+      "urgency_accuracy": 0.857,
+      "department_accuracy": 1.0,
+      "json_valid_rate": 1.0,
+      "mean_latency_ms": 1842.3,
+      "mean_api_cost": 0.000312,
+      "api_cost_currency": "USD",
+      "reviewed_notices": 0,
+      "human_correction_rate": null
+    }
+  ]
+}
+```

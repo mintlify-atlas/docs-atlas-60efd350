@@ -1,0 +1,215 @@
+---
+title: "GET /api/v1/metrics/summary — Historical Performance Summary"
+sidebarTitle: "GET /metrics/summary"
+description: "GET /api/v1/metrics/summary aggregates all triage runs and comparisons. Returns acceptance rates, latency, tokens, cost, and human agreement per provider."
+---
+
+The metrics summary endpoint aggregates the complete history of triage runs and comparisons stored in the database. Unlike the per-run telemetry embedded in individual triage responses, this endpoint gives a global view of how each provider is performing across all notices: how often humans accept the AI's proposals unchanged, what the typical latency and token cost looks like, and how stable output formatting has been. Use it to compare providers over time or to build a monitoring dashboard.
+
+## Endpoint
+
+```
+GET /api/v1/metrics/summary
+```
+
+## Parameters
+
+This endpoint accepts no query parameters, path parameters, or request body.
+
+## Response — `MetricsSummary`
+
+### Top-Level Counts
+
+<ResponseField name="total_notices" type="integer">
+  Total number of unique hazard notices ever created (regardless of status).
+</ResponseField>
+
+<ResponseField name="total_runs" type="integer">
+  Total number of triage executions across all notices and providers.
+</ResponseField>
+
+<ResponseField name="pending_review" type="integer">
+  Number of triage runs currently awaiting a human decision.
+</ResponseField>
+
+<ResponseField name="reviewed" type="integer">
+  Number of triage runs that have received a human decision (approved + modified + rejected).
+</ResponseField>
+
+<ResponseField name="approved" type="integer">
+  Number of triage runs accepted without modification.
+</ResponseField>
+
+<ResponseField name="modified" type="integer">
+  Number of triage runs accepted with corrections to at least one field.
+</ResponseField>
+
+<ResponseField name="rejected" type="integer">
+  Number of triage runs that were rejected entirely.
+</ResponseField>
+
+### Aggregate Rates
+
+All three rate fields are `null` when there are no reviewed runs. They are never coerced to `0`.
+
+<ResponseField name="acceptance_rate" type="number | null">
+  Proportion of reviewed runs that were approved without modification (`approved / reviewed`).
+</ResponseField>
+
+<ResponseField name="correction_rate" type="number | null">
+  Proportion of reviewed runs that were approved with corrections (`modified / reviewed`).
+</ResponseField>
+
+<ResponseField name="rejection_rate" type="number | null">
+  Proportion of reviewed runs that were rejected (`rejected / reviewed`).
+</ResponseField>
+
+### Per-Provider Breakdown
+
+<ResponseField name="providers" type="array of ProviderMetricsSummary">
+  Always contains exactly two entries — one for `local` and one for `external`.
+
+  <Expandable title="ProviderMetricsSummary fields">
+    <ResponseField name="provider" type="string">
+      `"local"` or `"external"`.
+    </ResponseField>
+    <ResponseField name="models" type="array of string">
+      Distinct model identifiers observed for this provider across all runs (e.g. `["llama3.2:3b"]`).
+    </ResponseField>
+    <ResponseField name="runs" type="integer">
+      Total triage runs for this provider.
+    </ResponseField>
+    <ResponseField name="reviewed_runs" type="integer">
+      Number of this provider's runs that have a human review decision.
+    </ResponseField>
+    <ResponseField name="mean_latency_ms" type="number | null">
+      Mean wall-clock latency in milliseconds. `null` if no runs.
+    </ResponseField>
+    <ResponseField name="mean_provider_attempts" type="number | null">
+      Mean number of HTTP calls per run (including retries). `null` if no runs.
+    </ResponseField>
+    <ResponseField name="repair_rate" type="number | null">
+      Proportion of runs that required at least one output-repair attempt (0–1). `null` if no runs.
+    </ResponseField>
+    <ResponseField name="mean_repair_attempts" type="number | null">
+      Mean number of repair attempts per run. `null` if no runs.
+    </ResponseField>
+    <ResponseField name="success_rate" type="number | null">
+      Proportion of runs that produced a valid `TriageResult` (0–1). `null` if no runs.
+    </ResponseField>
+    <ResponseField name="json_valid_rate" type="number | null">
+      Proportion of runs where the raw model output was valid JSON before any repair (0–1). `null` if `json_valid_observations` is 0.
+    </ResponseField>
+    <ResponseField name="json_valid_observations" type="integer">
+      Number of runs for which JSON validity was recorded.
+    </ResponseField>
+    <ResponseField name="human_agreement_rate" type="number | null">
+      Proportion of reviewed runs that were **approved without modification** (`approved / reviewed_runs`). Corrections, rejections, and failures all count as disagreement. `null` if `reviewed_runs` is 0.
+    </ResponseField>
+    <ResponseField name="mean_total_tokens" type="number | null">
+      Mean total tokens (input + output) per run. `null` if `token_observations` is 0.
+    </ResponseField>
+    <ResponseField name="token_observations" type="integer">
+      Number of runs for which token counts were recorded.
+    </ResponseField>
+    <ResponseField name="mean_api_cost" type="number | null">
+      Mean estimated API cost per run. `null` for local models or if `cost_observations` is 0.
+    </ResponseField>
+    <ResponseField name="api_cost_currency" type="string | null">
+      ISO 4217 currency code for `mean_api_cost` (e.g. `"USD"`). `null` if no cost data.
+    </ResponseField>
+    <ResponseField name="cost_observations" type="integer">
+      Number of runs for which API cost data was recorded.
+    </ResponseField>
+    <ResponseField name="temperatures" type="array of number">
+      Distinct temperature values observed across all runs for this provider.
+    </ResponseField>
+    <ResponseField name="top_p_values" type="array of number">
+      Distinct top-p values observed across all runs for this provider.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<Note>
+  Fields with no observations are always `null`, never `0`. For example, if no token counts have been reported for the local provider, `mean_total_tokens` will be `null` and `token_observations` will be `0`. This distinction is intentional: a `null` means "no data", while a numeric `0` would mean "observed and equal to zero".
+</Note>
+
+### Understanding `human_agreement_rate`
+
+`human_agreement_rate` answers the question: *"When a human reviewed this provider's output, how often did they accept it without any changes?"* It is calculated as:
+
+```
+human_agreement_rate = approved_without_modification / reviewed_runs
+```
+
+Any outcome other than a clean approval counts as disagreement:
+- The reviewer modified one or more fields → disagreement
+- The reviewer rejected the proposal → disagreement
+- The triage run failed (no result produced) → disagreement
+
+## Example Request
+
+```bash
+curl http://127.0.0.1:8000/api/v1/metrics/summary
+```
+
+### Example Response (abbreviated)
+
+```json
+{
+  "total_notices": 42,
+  "total_runs": 58,
+  "pending_review": 12,
+  "reviewed": 46,
+  "approved": 31,
+  "modified": 9,
+  "rejected": 6,
+  "acceptance_rate": 0.674,
+  "correction_rate": 0.196,
+  "rejection_rate": 0.130,
+  "providers": [
+    {
+      "provider": "local",
+      "models": ["llama3.2:3b"],
+      "runs": 30,
+      "reviewed_runs": 24,
+      "mean_latency_ms": 4150.2,
+      "mean_provider_attempts": 1.1,
+      "repair_rate": 0.067,
+      "mean_repair_attempts": 0.067,
+      "success_rate": 0.933,
+      "json_valid_rate": 0.967,
+      "json_valid_observations": 30,
+      "human_agreement_rate": 0.708,
+      "mean_total_tokens": 812.4,
+      "token_observations": 28,
+      "mean_api_cost": null,
+      "api_cost_currency": null,
+      "cost_observations": 0,
+      "temperatures": [0.2],
+      "top_p_values": [0.9]
+    },
+    {
+      "provider": "external",
+      "models": ["gemini-2.0-flash"],
+      "runs": 28,
+      "reviewed_runs": 22,
+      "mean_latency_ms": 1923.7,
+      "mean_provider_attempts": 1.0,
+      "repair_rate": 0.0,
+      "mean_repair_attempts": 0.0,
+      "success_rate": 1.0,
+      "json_valid_rate": 1.0,
+      "json_valid_observations": 28,
+      "human_agreement_rate": 0.818,
+      "mean_total_tokens": 654.1,
+      "token_observations": 28,
+      "mean_api_cost": 0.000289,
+      "api_cost_currency": "USD",
+      "cost_observations": 28,
+      "temperatures": [0.1],
+      "top_p_values": [0.95]
+    }
+  ]
+}
+```
